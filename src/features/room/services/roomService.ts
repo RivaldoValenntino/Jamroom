@@ -1,8 +1,45 @@
 import { supabase, isSupabaseConfigured } from '@/services/supabaseClient';
 import { formatDuration } from '@/features/player/services/youtubeService';
-import type { Room, RoomPrivacy, RoomSettings, RoomMember, RoomRole } from '@/types/database.types';
+import type { Room, RoomPrivacy, RoomSettings, RoomMember, RoomRole, RoomCategory } from '@/types/database.types';
 
 const LOCAL_ROOMS_KEY = 'jamroom_local_rooms';
+
+export const DEFAULT_ROOM_CATEGORIES: RoomCategory[] = [
+  { id: 'cat-pop', name: 'Pop', slug: 'pop', description: 'Catchy mainstream pop, dance-pop, and chart toppers' },
+  { id: 'cat-rock', name: 'Rock', slug: 'rock', description: 'Classic rock, alternative, hard rock, and guitar riffs' },
+  { id: 'cat-jazz', name: 'Jazz', slug: 'jazz', description: 'Smooth jazz, bebop, fusion, and late-night brass lounge' },
+  { id: 'cat-r-and-b', name: 'R&B', slug: 'r-and-b', description: 'Rhythm and blues, soul, contemporary neo-soul' },
+  { id: 'cat-hip-hop', name: 'Hip Hop', slug: 'hip-hop', description: 'Boom bap, trap, 90s golden age, and conscious beats' },
+  { id: 'cat-electronic', name: 'Electronic', slug: 'electronic', description: 'EDM, house, techno, ambient, and synthesizer waves' },
+  { id: 'cat-indie', name: 'Indie', slug: 'indie', description: 'Indie rock, dream pop, bedroom lo-fi, and shoegaze' },
+  { id: 'cat-dangdut', name: 'Dangdut', slug: 'dangdut', description: 'Indonesian modern and classic dangdut rhythms' },
+  { id: 'cat-classical', name: 'Classical', slug: 'classical', description: 'Symphonic orchestra, piano sonatas, and modern cinematic ambient' },
+  { id: 'cat-k-pop', name: 'K-Pop', slug: 'k-pop', description: 'Korean pop music, high energy dance and idol tracks' },
+  { id: 'cat-j-pop', name: 'J-Pop', slug: 'j-pop', description: 'Japanese pop, city pop, and anime original soundtracks' },
+  { id: 'cat-lo-fi', name: 'Lo-fi', slug: 'lo-fi', description: 'Chillhop, lofi beats, vinyl crackles, study & deep focus' },
+  { id: 'cat-mixed-other', name: 'Mixed / Other', slug: 'mixed-other', description: 'Eclectic multi-genre mix and freeform listening' },
+];
+
+/**
+ * Fetches all available room categories.
+ */
+export async function fetchRoomCategories(): Promise<RoomCategory[]> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabase
+        .from('room_categories')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (!error && data && data.length > 0) {
+        return data as RoomCategory[];
+      }
+    } catch (err) {
+      console.warn('[fetchRoomCategories] Supabase query notice:', err);
+    }
+  }
+  return DEFAULT_ROOM_CATEGORIES;
+}
 
 export interface ActiveRoomSummary extends Room {
   host?: string;
@@ -18,6 +55,7 @@ export interface CreateRoomInput {
   description?: string;
   privacy: RoomPrivacy;
   password?: string;
+  categoryId?: string;
   settings?: Partial<RoomSettings>;
 }
 
@@ -63,14 +101,35 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
         return createLocalRoom(input, sanitizedSlug);
       }
 
-      const { data, error } = await supabase.rpc('rpc_create_room', {
+      let { data, error } = await supabase.rpc('rpc_create_room', {
         p_name: input.name.trim(),
         p_slug: sanitizedSlug,
         p_description: input.description?.trim() || null,
         p_privacy: input.privacy,
         p_password: input.password?.trim() || null,
         p_settings: input.settings || {},
+        p_category_id: input.categoryId || null,
       });
+
+      // Backward-compatibility: If database function hasn't been migrated yet, retry without p_category_id
+      if (error && (error.message?.includes('p_category_id') || error.code === 'PGRST202')) {
+        const retry = await supabase.rpc('rpc_create_room', {
+          p_name: input.name.trim(),
+          p_slug: sanitizedSlug,
+          p_description: input.description?.trim() || null,
+          p_privacy: input.privacy,
+          p_password: input.password?.trim() || null,
+          p_settings: input.settings || {},
+        });
+        if (!retry.error && retry.data) {
+          data = retry.data;
+          error = null;
+          if (input.categoryId && data.room?.id) {
+            await supabase.from('rooms').update({ category_id: input.categoryId }).eq('id', data.room.id);
+            if (data.room) data.room.category_id = input.categoryId;
+          }
+        }
+      }
 
       if (!error && data) {
         return {
@@ -115,15 +174,32 @@ export async function getRoomBySlug(slug: string): Promise<Room | null> {
   if (isSupabaseConfigured) {
     const { data, error } = await supabase
       .from('rooms')
+      .select('*, category:room_categories(*)')
+      .eq('slug', slug)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if (!error && data) return data as Room;
+
+    // Fallback if join is unavailable
+    const fallback = await supabase
+      .from('rooms')
       .select('*')
       .eq('slug', slug)
       .eq('status', 'active')
       .maybeSingle();
 
+    if (fallback.data) {
+      const room = fallback.data as Room;
+      if (room.category_id && !room.category) {
+        room.category = DEFAULT_ROOM_CATEGORIES.find((c) => c.id === room.category_id) || null;
+      }
+      return room;
+    }
+
     if (error) {
       console.warn('[getRoomBySlug] Supabase query error:', error);
     }
-    if (data) return data as Room;
   }
 
   // Check local offline storage
@@ -133,18 +209,19 @@ export async function getRoomBySlug(slug: string): Promise<Room | null> {
 
 /**
  * Fetches all public active rooms for the Explore lobby and homepage,
- * enriched with live host profile, currently playing song, and member counts.
+ * enriched with live host profile, currently playing song, member counts, and category.
  */
-export async function getPublicRooms(searchQuery?: string): Promise<ActiveRoomSummary[]> {
+export async function getPublicRooms(searchQuery?: string, categorySlug?: string): Promise<ActiveRoomSummary[]> {
   const resultRooms: ActiveRoomSummary[] = [];
 
   if (isSupabaseConfigured) {
     try {
-      // 1. Attempt joined query with owner profile and current playback state
+      // 1. Attempt joined query with category, owner profile, and current playback state
       let query = supabase
         .from('rooms')
         .select(`
           *,
+          category:room_categories(*),
           owner:profiles(display_name, username),
           playback_state:playback_states(
             is_playing,
@@ -185,9 +262,11 @@ export async function getPublicRooms(searchQuery?: string): Promise<ActiveRoomSu
           const pb = Array.isArray(r.playback_state) ? r.playback_state[0] : r.playback_state;
           const song = pb?.current_song;
           const durSec = song?.duration_seconds || 0;
+          const cat = r.category || (r.category_id ? DEFAULT_ROOM_CATEGORIES.find((c) => c.id === r.category_id) : null);
 
           resultRooms.push({
             ...r,
+            category: cat || null,
             host: hostName,
             current_song: song?.title || (pb?.is_playing ? 'Playing Audio' : 'Lounge Idle'),
             duration: durSec > 0 ? formatDuration(durSec) : '--:--',
@@ -220,6 +299,14 @@ export async function getPublicRooms(searchQuery?: string): Promise<ActiveRoomSu
         });
       }
     }
+  }
+
+  // Filter by category slug if provided and not 'all'
+  if (categorySlug && categorySlug !== 'all') {
+    return resultRooms.filter((r) => {
+      const cSlug = r.category?.slug || (r.category_id ? DEFAULT_ROOM_CATEGORIES.find((c) => c.id === r.category_id)?.slug : null);
+      return cSlug === categorySlug;
+    });
   }
 
   return resultRooms;
@@ -317,18 +404,44 @@ export async function updateRoom(roomId: string, updates: Partial<Room>): Promis
         updated_at: new Date().toISOString(),
       })
       .eq('id', roomId)
-      .select()
+      .select('*, category:room_categories(*)')
       .single();
 
-    if (error) throw error;
-    return data as Room;
+    if (!error && data) return data as Room;
+
+    // Fallback if join select is unavailable
+    const fallback = await supabase
+      .from('rooms')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', roomId)
+      .select('*')
+      .single();
+
+    if (fallback.error) throw fallback.error;
+    const room = fallback.data as Room;
+    if (room.category_id && !room.category) {
+      room.category = DEFAULT_ROOM_CATEGORIES.find((c) => c.id === room.category_id) || null;
+    }
+    return room;
   }
 
   // Local fallback
   const rooms = getLocalRooms();
   const idx = rooms.findIndex((r) => r.id === roomId);
   if (idx === -1) throw new Error('Room not found');
-  rooms[idx] = { ...rooms[idx], ...updates, updated_at: new Date().toISOString() };
+  const cat = updates.category_id
+    ? DEFAULT_ROOM_CATEGORIES.find((c) => c.id === updates.category_id) || null
+    : rooms[idx].category;
+
+  rooms[idx] = {
+    ...rooms[idx],
+    ...updates,
+    category: cat || rooms[idx].category,
+    updated_at: new Date().toISOString(),
+  };
   localStorage.setItem(LOCAL_ROOMS_KEY, JSON.stringify(rooms));
   return rooms[idx];
 }
@@ -507,6 +620,11 @@ function getLocalRooms(): Room[] {
 
 function createLocalRoom(input: CreateRoomInput, slug: string): CreateRoomResult {
   const localRooms = getLocalRooms();
+  const category = input.categoryId
+    ? DEFAULT_ROOM_CATEGORIES.find((c) => c.id === input.categoryId || c.slug === input.categoryId) ||
+      DEFAULT_ROOM_CATEGORIES.find((c) => c.slug === 'lo-fi')
+    : DEFAULT_ROOM_CATEGORIES.find((c) => c.slug === 'lo-fi');
+
   const newRoom: Room = {
     id: crypto.randomUUID(),
     slug,
@@ -515,6 +633,8 @@ function createLocalRoom(input: CreateRoomInput, slug: string): CreateRoomResult
     cover_url: null,
     privacy: input.privacy,
     owner_id: 'local-owner',
+    category_id: category?.id || null,
+    category: category || null,
     status: 'active',
     max_members: 50,
     settings: {

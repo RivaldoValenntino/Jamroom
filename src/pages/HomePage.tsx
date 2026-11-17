@@ -200,6 +200,14 @@ export function HomePage() {
                       >
                         {room.name}
                       </Link>
+                      {room.category?.name && (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] font-mono py-0 px-1 text-muted-foreground border-border shrink-0"
+                        >
+                          {room.category.name}
+                        </Badge>
+                      )}
                     </div>
                     <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 font-mono">
                       <span>Host: {room.host || 'Host'}</span>

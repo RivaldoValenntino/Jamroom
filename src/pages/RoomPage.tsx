@@ -241,6 +241,7 @@ export function RoomPage() {
         isOpen={isSettingsOpen}
         room={currentRoom}
         isHost={isHost}
+        userRole={userRole}
         onClose={() => setIsSettingsOpen(false)}
         onRoomUpdated={(updated) => setActiveRoomState(updated)}
       />
@@ -278,6 +279,14 @@ export function RoomPage() {
           <span className="font-semibold text-foreground text-xs uppercase tracking-wider truncate">
             {currentRoom.name}
           </span>
+          {currentRoom.category?.name && (
+            <Badge
+              variant="secondary"
+              className="text-[10px] hidden sm:inline-flex py-0 px-1.5 font-mono bg-muted/60 text-muted-foreground border-border"
+            >
+              {currentRoom.category.name}
+            </Badge>
+          )}
           <span className="text-muted-foreground hidden sm:inline">•</span>
           <Badge
             variant={isHost ? 'default' : 'outline'}

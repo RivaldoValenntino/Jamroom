@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { supabase, isSupabaseConfigured } from '@/services/supabaseClient';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import {
   getRoomBySlug,
@@ -68,6 +69,31 @@ export function useRoom(slug: string | undefined) {
 
     return () => clearInterval(interval);
   }, [room?.id, isPasscodeRequired]);
+
+  // Realtime subscription for room updates (category changes, settings, status)
+  useEffect(() => {
+    if (!room?.id || !isSupabaseConfigured) return;
+
+    const channel = supabase
+      .channel(`room_updates_${room.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'rooms',
+          filter: `id=eq.${room.id}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['room', slug] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [room?.id, slug, queryClient]);
 
   // Submit passcode
   const submitPasscode = useCallback(

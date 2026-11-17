@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
@@ -12,14 +12,17 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useUiStore } from '@/stores/useUiStore';
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { createRoom } from '@/features/room/services/roomService';
-import { Lock, Globe, EyeOff, ArrowRight, KeyRound, Copy, Check } from 'lucide-react';
+import { createRoom, fetchRoomCategories, DEFAULT_ROOM_CATEGORIES } from '@/features/room/services/roomService';
+import type { RoomCategory } from '@/types/database.types';
+import { Lock, Globe, EyeOff, ArrowRight, KeyRound, Copy, Check, Music2 } from 'lucide-react';
 
 export function CreateRoomModal() {
   const navigate = useNavigate();
   const { isCreateRoomOpen, setCreateRoomOpen } = useUiStore();
   const { profile } = useAuth();
 
+  const [categories, setCategories] = useState<RoomCategory[]>(DEFAULT_ROOM_CATEGORIES);
+  const [categoryId, setCategoryId] = useState<string>('');
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [privacy, setPrivacy] = useState<'public' | 'unlisted' | 'password'>('public');
@@ -28,6 +31,20 @@ export function CreateRoomModal() {
   const [skipThreshold] = useState(50);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Fetch categories on mount or open
+  useEffect(() => {
+    fetchRoomCategories().then((cats) => {
+      if (cats && cats.length > 0) {
+        setCategories(cats);
+        // Default to Lo-fi or first category if none selected
+        if (!categoryId) {
+          const lofi = cats.find((c) => c.slug === 'lo-fi') || cats[0];
+          setCategoryId(lofi.id);
+        }
+      }
+    });
+  }, [isCreateRoomOpen]);
 
   // Post-creation token review state
   const [createdRoomSlug, setCreatedRoomSlug] = useState<string | null>(null);
@@ -51,6 +68,10 @@ export function CreateRoomModal() {
       setErrorMsg('Room name is required');
       return;
     }
+    if (!categoryId) {
+      setErrorMsg('Music category is required');
+      return;
+    }
     const finalSlug = slug.trim() || `room-${Math.floor(1000 + Math.random() * 9000)}`;
     if (privacy === 'password' && !password.trim()) {
       setErrorMsg('Password is required for password-protected rooms');
@@ -66,6 +87,7 @@ export function CreateRoomModal() {
         slug: finalSlug,
         privacy,
         password: privacy === 'password' ? password.trim() : undefined,
+        categoryId,
         settings: {
           shared_speakers: sharedSpeakers,
           skip_vote_threshold_percent: skipThreshold,
@@ -194,6 +216,37 @@ export function CreateRoomModal() {
                   maxLength={60}
                   required
                 />
+              </div>
+
+              {/* Music Category */}
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Music2 className="h-3 w-3 text-primary" />
+                    Music Category
+                  </span>
+                  <span className="text-[10px] font-mono text-muted-foreground uppercase">Required</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                    required
+                    className="w-full h-8 px-2.5 text-xs bg-muted/40 border border-border rounded text-foreground outline-none focus:border-primary transition-colors cursor-pointer appearance-none"
+                  >
+                    <option value="" disabled className="bg-surface text-muted-foreground">
+                      Select room music category / vibe...
+                    </option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id} className="bg-surface text-foreground py-1">
+                        {cat.name} {cat.description ? `(${cat.description})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-muted-foreground text-[10px]">
+                    ▼
+                  </div>
+                </div>
               </div>
 
               {/* Custom Slug */}

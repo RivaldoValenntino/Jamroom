@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Settings, Shield, Sliders, MessageSquare, Loader2, Check } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Settings, Shield, Sliders, MessageSquare, Loader2, Check, Music2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -11,13 +11,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
-import type { Room, RoomSettings } from '@/types/database.types';
-import { updateRoom } from '../services/roomService';
+import type { Room, RoomSettings, RoomRole, RoomCategory } from '@/types/database.types';
+import { updateRoom, fetchRoomCategories, DEFAULT_ROOM_CATEGORIES } from '../services/roomService';
 
 interface RoomSettingsModalProps {
   isOpen: boolean;
   room: Room;
   isHost: boolean;
+  userRole?: RoomRole;
   onClose: () => void;
   onRoomUpdated: (updated: Room) => void;
 }
@@ -26,9 +27,13 @@ export function RoomSettingsModal({
   isOpen,
   room,
   isHost,
+  userRole = 'member',
   onClose,
   onRoomUpdated,
 }: RoomSettingsModalProps) {
+  const canEdit = isHost || userRole === 'moderator';
+  const [categories, setCategories] = useState<RoomCategory[]>(DEFAULT_ROOM_CATEGORIES);
+  const [categoryId, setCategoryId] = useState<string>(room.category_id || '');
   const [name, setName] = useState(room.name);
   const [description, setDescription] = useState(room.description || '');
   const [settings, setSettings] = useState<RoomSettings>({
@@ -47,6 +52,22 @@ export function RoomSettingsModal({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  useEffect(() => {
+    fetchRoomCategories().then((cats) => {
+      if (cats && cats.length > 0) {
+        setCategories(cats);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    setName(room.name);
+    setDescription(room.description || '');
+    setCategoryId(room.category_id || '');
+  }, [room.name, room.description, room.category_id]);
+
+  const currentCategory = categories.find((c) => c.id === categoryId) || room.category || null;
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -59,6 +80,7 @@ export function RoomSettingsModal({
       const updated = await updateRoom(room.id, {
         name: name.trim(),
         description: description.trim() || null,
+        category_id: canEdit ? (categoryId || null) : room.category_id,
         settings,
       });
 
@@ -122,6 +144,52 @@ export function RoomSettingsModal({
                 maxLength={160}
                 className="h-8 text-xs bg-muted/30 border-border"
               />
+            </div>
+
+            {/* Category Setting */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                  <Music2 className="h-3 w-3 text-primary" />
+                  Room Category / Vibe
+                </label>
+                {!canEdit && (
+                  <Badge variant="outline" className="text-[10px] font-mono">
+                    READ-ONLY (MEMBER)
+                  </Badge>
+                )}
+              </div>
+
+              {canEdit ? (
+                <div className="relative">
+                  <select
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                    className="w-full h-8 px-2.5 text-xs bg-muted/30 border border-border rounded text-foreground outline-none focus:border-primary transition-colors cursor-pointer appearance-none"
+                  >
+                    <option value="" disabled className="bg-surface text-muted-foreground">
+                      Select room category...
+                    </option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id} className="bg-surface text-foreground py-1">
+                        {cat.name} {cat.description ? `(${cat.description})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-muted-foreground text-[10px]">
+                    ▼
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 p-2 rounded bg-muted/20 border border-border text-xs">
+                  <Badge variant="secondary" className="font-mono text-[10px]">
+                    {currentCategory?.name || 'Uncategorized'}
+                  </Badge>
+                  <span className="text-[11px] text-muted-foreground truncate">
+                    {currentCategory?.description || 'Only host and moderators can update lounge category.'}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 

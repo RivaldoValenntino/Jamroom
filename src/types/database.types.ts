@@ -21,6 +21,14 @@ export interface Profile {
   last_seen_at: string;
 }
 
+export interface RoomCategory {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  created_at?: string;
+}
+
 export interface RoomSettings {
   shared_speakers: boolean;
   add_to_queue_permission: 'anyone' | 'host_and_mods_only';
@@ -41,6 +49,8 @@ export interface Room {
   cover_url: string | null;
   privacy: RoomPrivacy;
   owner_id: string;
+  category_id?: string | null;
+  category?: RoomCategory | null;
   status: 'active' | 'archived';
   max_members: number;
   settings: RoomSettings;

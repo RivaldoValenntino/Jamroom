@@ -61,6 +61,36 @@ CREATE POLICY "Users can only update their own profile"
     ON public.profiles FOR UPDATE USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
 
 -- ============================================================================
+-- 1.5 ROOM CATEGORIES
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.room_categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL UNIQUE,
+    slug TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+
+-- Seed Predefined Standard Music Categories
+INSERT INTO public.room_categories (name, slug, description)
+VALUES
+    ('Pop', 'pop', 'Catchy mainstream pop, dance-pop, and chart toppers'),
+    ('Rock', 'rock', 'Classic rock, alternative, hard rock, and guitar riffs'),
+    ('Jazz', 'jazz', 'Smooth jazz, bebop, fusion, and late-night brass lounge'),
+    ('R&B', 'r-and-b', 'Rhythm and blues, soul, contemporary neo-soul'),
+    ('Hip Hop', 'hip-hop', 'Boom bap, trap, 90s golden age, and conscious beats'),
+    ('Electronic', 'electronic', 'EDM, house, techno, ambient, and synthesizer waves'),
+    ('Indie', 'indie', 'Indie rock, dream pop, bedroom lo-fi, and shoegaze'),
+    ('Dangdut', 'dangdut', 'Indonesian modern and classic dangdut rhythms'),
+    ('Classical', 'classical', 'Symphonic orchestra, piano sonatas, and modern cinematic ambient'),
+    ('K-Pop', 'k-pop', 'Korean pop music, high energy dance and idol tracks'),
+    ('J-Pop', 'j-pop', 'Japanese pop, city pop, and anime original soundtracks'),
+    ('Lo-fi', 'lo-fi', 'Chillhop, lofi beats, vinyl crackles, study & deep focus'),
+    ('Mixed / Other', 'mixed-other', 'Eclectic multi-genre mix and freeform listening')
+ON CONFLICT (slug) DO UPDATE 
+SET name = EXCLUDED.name, description = EXCLUDED.description;
+
+-- ============================================================================
 -- 2. ROOMS TABLE (Metadata Lounge Virtual)
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.rooms (
@@ -71,6 +101,7 @@ CREATE TABLE IF NOT EXISTS public.rooms (
     cover_url TEXT,
     privacy TEXT NOT NULL CHECK (privacy IN ('public', 'unlisted', 'password')) DEFAULT 'public',
     owner_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
+    category_id UUID REFERENCES public.room_categories(id) ON DELETE SET NULL,
     status TEXT NOT NULL CHECK (status IN ('active', 'archived')) DEFAULT 'active',
     max_members INTEGER NOT NULL DEFAULT 50 CHECK (max_members BETWEEN 2 AND 200),
     settings JSONB NOT NULL DEFAULT '{
@@ -258,6 +289,11 @@ ALTER TABLE public.playlist_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.playback_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.youtube_search_cache ENABLE ROW LEVEL SECURITY;
 
+-- Room Categories
+ALTER TABLE public.room_categories ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Room categories viewable by everyone" ON public.room_categories;
+CREATE POLICY "Room categories viewable by everyone" ON public.room_categories FOR SELECT USING (true);
+
 -- Rooms
 DROP POLICY IF EXISTS "Rooms viewable based on status" ON public.rooms;
 CREATE POLICY "Rooms viewable based on status" ON public.rooms FOR SELECT USING (status = 'active');
@@ -266,7 +302,16 @@ DROP POLICY IF EXISTS "Authenticated guests can create rooms" ON public.rooms;
 CREATE POLICY "Authenticated guests can create rooms" ON public.rooms FOR INSERT WITH CHECK (auth.uid() = owner_id);
 
 DROP POLICY IF EXISTS "Room owner can update room" ON public.rooms;
-CREATE POLICY "Room owner can update room" ON public.rooms FOR UPDATE USING (auth.uid() = owner_id);
+DROP POLICY IF EXISTS "Room owner or moderator can update room" ON public.rooms;
+CREATE POLICY "Room owner or moderator can update room" ON public.rooms FOR UPDATE USING (
+    auth.uid() = owner_id
+    OR EXISTS (
+        SELECT 1 FROM public.room_members rm
+        WHERE rm.room_id = public.rooms.id
+          AND rm.user_id = auth.uid()
+          AND rm.role IN ('owner', 'moderator')
+    )
+);
 
 -- Room Secrets (Isolasi Total)
 DROP POLICY IF EXISTS "No client access to room secrets" ON public.room_secrets;
@@ -455,7 +500,8 @@ CREATE OR REPLACE FUNCTION public.rpc_create_room(
     p_description TEXT DEFAULT NULL,
     p_privacy TEXT DEFAULT 'public',
     p_password TEXT DEFAULT NULL,
-    p_settings JSONB DEFAULT '{}'::jsonb
+    p_settings JSONB DEFAULT '{}'::jsonb,
+    p_category_id UUID DEFAULT NULL
 )
 RETURNS JSONB AS $$
 DECLARE
@@ -465,6 +511,7 @@ DECLARE
     v_recovery_hash TEXT;
     v_password_hash TEXT := NULL;
     v_final_settings JSONB;
+    v_final_category_id UUID := p_category_id;
 BEGIN
     IF v_user_id IS NULL THEN
         RAISE EXCEPTION 'Authentication required';
@@ -487,6 +534,14 @@ BEGIN
         v_password_hash := crypt(p_password, gen_salt('bf'));
     END IF;
 
+    -- Fallback category if not provided or invalid
+    IF v_final_category_id IS NULL OR NOT EXISTS (SELECT 1 FROM public.room_categories WHERE id = v_final_category_id) THEN
+        SELECT id INTO v_final_category_id FROM public.room_categories WHERE slug = 'lo-fi' LIMIT 1;
+        IF v_final_category_id IS NULL THEN
+            SELECT id INTO v_final_category_id FROM public.room_categories LIMIT 1;
+        END IF;
+    END IF;
+
     -- Generate emergency recovery token (128-bit)
     v_recovery_token := 'jam-' || encode(gen_random_bytes(10), 'hex');
     v_recovery_hash := crypt(v_recovery_token, gen_salt('bf'));
@@ -496,6 +551,7 @@ BEGIN
         "shared_speakers": false,
         "add_to_queue_permission": "anyone",
         "reorder_queue_permission": "host_and_mods_only",
+        "delete_queue_permission": "host_and_mods_only",
         "vote_skip_enabled": true,
         "skip_vote_threshold_percent": 50,
         "max_queue_items_per_user": 5,
@@ -504,8 +560,8 @@ BEGIN
     }'::jsonb || COALESCE(p_settings, '{}'::jsonb);
 
     -- Insert into rooms
-    INSERT INTO public.rooms (slug, name, description, privacy, owner_id, settings)
-    VALUES (p_slug, p_name, p_description, p_privacy, v_user_id, v_final_settings)
+    INSERT INTO public.rooms (slug, name, description, privacy, owner_id, settings, category_id)
+    VALUES (p_slug, p_name, p_description, p_privacy, v_user_id, v_final_settings, v_final_category_id)
     RETURNING * INTO v_room;
 
     -- Insert into quarantined room_secrets

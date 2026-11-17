@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Compass,
@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useUiStore } from '@/stores/useUiStore';
 import { useExploreRooms } from '@/features/room/hooks/useExploreRooms';
+import { fetchRoomCategories, DEFAULT_ROOM_CATEGORIES } from '@/features/room/services/roomService';
+import type { RoomCategory } from '@/types/database.types';
 
 const DEMO_ROOMS = [
   {
@@ -23,6 +25,7 @@ const DEMO_ROOMS = [
     name: 'Lo-Fi Chill & Code Beats',
     description: 'Relaxing 24/7 lo-fi hip hop, synthwave, and chillhop for study and deep focus.',
     privacy: 'public' as const,
+    category: { id: 'cat-lo-fi', name: 'Lo-fi', slug: 'lo-fi', description: null },
     current_song: 'Lofi Girl - 1 A.M Study Session',
     duration: '03:42',
     members_count: 24,
@@ -34,6 +37,7 @@ const DEMO_ROOMS = [
     name: 'Cyberpunk Neon Radio 2077',
     description: 'Dark synth, retro electro, outrun and future bass for midnight hackers.',
     privacy: 'public' as const,
+    category: { id: 'cat-electronic', name: 'Electronic', slug: 'electronic', description: null },
     current_song: 'Carpenter Brut - Turbo Killer',
     duration: '04:15',
     members_count: 18,
@@ -45,6 +49,7 @@ const DEMO_ROOMS = [
     name: 'Deep House & Melodic Techno',
     description: 'Smooth weekend sunset vibes curated live with open shared speakers.',
     privacy: 'public' as const,
+    category: { id: 'cat-electronic', name: 'Electronic', slug: 'electronic', description: null },
     current_song: 'RÜFÜS DU SOL - Innerbloom',
     duration: '09:38',
     members_count: 31,
@@ -56,6 +61,7 @@ const DEMO_ROOMS = [
     name: 'Indie Rock & Bedroom Pop',
     description: 'Community collaborative queue: add your favorite underground gems.',
     privacy: 'password' as const,
+    category: { id: 'cat-indie', name: 'Indie', slug: 'indie', description: null },
     current_song: 'Tame Impala - The Less I Know The Better',
     duration: '03:36',
     members_count: 12,
@@ -65,12 +71,20 @@ const DEMO_ROOMS = [
 
 export function ExplorePage() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [categories, setCategories] = useState<RoomCategory[]>(DEFAULT_ROOM_CATEGORIES);
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
   const [filterPrivacy, setFilterPrivacy] = useState<'all' | 'public' | 'password'>('all');
   const setCreateRoomOpen = useUiStore((s) => s.setCreateRoomOpen);
 
-  // Live remote query
-  const { data: remoteRooms, isLoading } = useExploreRooms(searchQuery);
+  useEffect(() => {
+    fetchRoomCategories().then((cats) => {
+      if (cats && cats.length > 0) setCategories(cats);
+    });
+  }, []);
+
+  // Live remote query with category filter
+  const { data: remoteRooms, isLoading } = useExploreRooms(searchQuery, selectedCategory);
 
   // Combine remote with demo fallback if table is newly seeded
   const activeRooms = remoteRooms && remoteRooms.length > 0 ? remoteRooms : DEMO_ROOMS;
@@ -82,7 +96,12 @@ export function ExplorePage() {
       room.slug.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesPrivacy = filterPrivacy === 'all' || room.privacy === filterPrivacy;
-    return matchesSearch && matchesPrivacy;
+    const matchesCategory =
+      selectedCategory === 'all' ||
+      room.category?.slug === selectedCategory ||
+      (room as any).category_id === selectedCategory;
+
+    return matchesSearch && matchesPrivacy && matchesCategory;
   });
 
   return (
@@ -139,7 +158,7 @@ export function ExplorePage() {
       </div>
 
       {/* Search & Filter Toolbar */}
-      <div className="flex flex-col sm:flex-row items-center gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row items-center gap-3 mb-3">
         <div className="relative flex-1 w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
@@ -184,6 +203,33 @@ export function ExplorePage() {
         </div>
       </div>
 
+      {/* Category Filter Pills */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-6 text-xs scrollbar-none">
+        <button
+          onClick={() => setSelectedCategory('all')}
+          className={`px-2.5 py-1 rounded text-xs whitespace-nowrap transition-colors font-medium border ${
+            selectedCategory === 'all'
+              ? 'border-primary bg-primary/10 text-primary font-semibold'
+              : 'border-border bg-surface text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          All Genres
+        </button>
+        {categories.map((cat) => (
+          <button
+            key={cat.id}
+            onClick={() => setSelectedCategory(cat.slug)}
+            className={`px-2.5 py-1 rounded text-xs whitespace-nowrap transition-colors border ${
+              selectedCategory === cat.slug
+                ? 'border-primary bg-primary/10 text-primary font-semibold'
+                : 'border-border bg-surface text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {cat.name}
+          </button>
+        ))}
+      </div>
+
       {isLoading && (
         <div className="py-12 text-center text-xs text-muted-foreground font-mono">
           Loading live directory...
@@ -194,7 +240,7 @@ export function ExplorePage() {
       {!isLoading && viewMode === 'table' ? (
         <div className="border border-border rounded-md overflow-hidden bg-surface">
           <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[11px] font-semibold text-muted-foreground border-b border-border bg-muted/40 uppercase tracking-wider">
-            <div className="col-span-6 md:col-span-5">Room / Slug</div>
+            <div className="col-span-6 md:col-span-5">Room / Category</div>
             <div className="col-span-4 md:col-span-5">Status & Mode</div>
             <div className="col-span-2 text-right">Action</div>
           </div>
@@ -223,6 +269,14 @@ export function ExplorePage() {
                     >
                       {room.name}
                     </Link>
+                    {room.category?.name && (
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] font-mono py-0 px-1 text-muted-foreground border-border shrink-0"
+                      >
+                        {room.category.name}
+                      </Badge>
+                    )}
                   </div>
                   <div className="text-[10px] text-muted-foreground font-mono truncate">
                     /{room.slug}
@@ -264,9 +318,16 @@ export function ExplorePage() {
             >
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <Badge variant={room.privacy === 'password' ? 'warning' : 'outline'} className="text-[10px]">
-                    {room.privacy === 'password' ? 'Protected' : 'Public'}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant={room.privacy === 'password' ? 'warning' : 'outline'} className="text-[10px]">
+                      {room.privacy === 'password' ? 'Protected' : 'Public'}
+                    </Badge>
+                    {room.category?.name && (
+                      <Badge variant="outline" className="text-[10px] font-mono text-muted-foreground border-border">
+                        {room.category.name}
+                      </Badge>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1 text-[11px] font-mono text-emerald-400">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                     <span>Live</span>
