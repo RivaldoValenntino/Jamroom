@@ -288,6 +288,9 @@ CREATE POLICY "Songs viewable by everyone" ON public.songs FOR SELECT USING (tru
 DROP POLICY IF EXISTS "Authenticated users can insert songs" ON public.songs;
 CREATE POLICY "Authenticated users can insert songs" ON public.songs FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
+DROP POLICY IF EXISTS "Authenticated users can update songs" ON public.songs;
+CREATE POLICY "Authenticated users can update songs" ON public.songs FOR UPDATE USING (auth.uid() IS NOT NULL);
+
 -- Queue Items
 DROP POLICY IF EXISTS "Queue items viewable by room members" ON public.queue_items;
 CREATE POLICY "Queue items viewable by room members" ON public.queue_items FOR SELECT USING (true);

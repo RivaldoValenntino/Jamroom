@@ -1,12 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { getPublicRooms } from '../services/roomService';
-import type { Room } from '@/types/database.types';
+import { getPublicRooms, ActiveRoomSummary } from '../services/roomService';
 
 export function useExploreRooms(searchQuery?: string) {
-  return useQuery<Room[]>({
+  return useQuery<ActiveRoomSummary[]>({
     queryKey: ['explore-rooms', searchQuery],
     queryFn: () => getPublicRooms(searchQuery),
-    staleTime: 10_000,
-    refetchInterval: 15_000,
+    staleTime: 5_000,
+    refetchInterval: 10_000,
   });
 }

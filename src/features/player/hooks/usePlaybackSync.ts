@@ -12,6 +12,7 @@ interface UsePlaybackSyncProps {
   playerRef: React.RefObject<YouTubePlayerRef>;
   playbackState: PlaybackState | null;
   currentSong: Song | null;
+  durationSeconds?: number;
   onTrackEnded: () => void;
 }
 
@@ -19,6 +20,7 @@ export function usePlaybackSync({
   playerRef,
   playbackState,
   currentSong,
+  durationSeconds,
   onTrackEnded,
 }: UsePlaybackSyncProps) {
   const [syncState, setSyncState] = useState<SyncState>('idle');
@@ -27,6 +29,10 @@ export function usePlaybackSync({
   const lastSeekTimeRef = useRef<number>(0);
   const lastKnownVersionRef = useRef<number>(0);
   const isAdvancingRef = useRef<boolean>(false);
+
+  const effectiveDuration = (durationSeconds && durationSeconds > 0)
+    ? durationSeconds
+    : (currentSong?.duration_seconds || 0);
 
   // Calculates the authoritative expected playback position
   const calculateExpectedPosition = useCallback((): number => {
@@ -39,9 +45,9 @@ export function usePlaybackSync({
     const elapsedSeconds = Math.max(0, (Date.now() - serverUpdatedAtMs) / 1000);
     const expected = Number(playbackState.position_seconds) + elapsedSeconds;
 
-    const maxDuration = currentSong?.duration_seconds || 100000;
+    const maxDuration = effectiveDuration > 0 ? effectiveDuration : 100000;
     return Math.min(expected, maxDuration);
-  }, [playbackState, currentSong]);
+  }, [playbackState, effectiveDuration]);
 
   // Evaluates drift between local YouTube player and authoritative server time
   const evaluateAndCorrectDrift = useCallback(() => {
@@ -55,7 +61,7 @@ export function usePlaybackSync({
     setEstimatedCurrentTime(expectedPos);
 
     // If track has reached its end according to server time, trigger end transition
-    if (currentSong.duration_seconds > 0 && expectedPos >= currentSong.duration_seconds) {
+    if (effectiveDuration > 0 && expectedPos >= effectiveDuration) {
       if (!isAdvancingRef.current) {
         isAdvancingRef.current = true;
         onTrackEnded();
@@ -68,8 +74,8 @@ export function usePlaybackSync({
 
     // Suppress seek if near the track end to prevent audio buffer thrashing
     const isNearEnd =
-      currentSong.duration_seconds > 0 &&
-      currentSong.duration_seconds - expectedPos < NEAR_END_SUPPRESSION_SECONDS;
+      effectiveDuration > 0 &&
+      effectiveDuration - expectedPos < NEAR_END_SUPPRESSION_SECONDS;
 
     if (drift <= DRIFT_TOLERANCE_SECONDS) {
       // Tier 1: In Sync

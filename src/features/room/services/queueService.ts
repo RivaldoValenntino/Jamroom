@@ -364,3 +364,46 @@ function setLocalPlayback(roomId: string, state: PlaybackState | null): void {
     // Ignore
   }
 }
+
+/**
+ * Persists detected YouTube media duration to Supabase and local cache.
+ */
+export async function updateSongDuration(songId: string, durationSeconds: number): Promise<void> {
+  if (!songId || durationSeconds <= 0) return;
+
+  if (isSupabaseConfigured) {
+    try {
+      await supabase
+        .from('songs')
+        .update({ duration_seconds: durationSeconds })
+        .eq('id', songId);
+    } catch (err) {
+      console.warn('[updateSongDuration] Supabase update warning:', err);
+    }
+  }
+
+  // Also update local cache for any stored queue
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(LOCAL_QUEUE_KEY_PREFIX)) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const list: any[] = JSON.parse(raw);
+          let changed = false;
+          list.forEach((item) => {
+            if (item.song?.id === songId && (!item.song.duration_seconds || item.song.duration_seconds === 0)) {
+              item.song.duration_seconds = durationSeconds;
+              changed = true;
+            }
+          });
+          if (changed) {
+            localStorage.setItem(key, JSON.stringify(list));
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore storage issues
+  }
+}

@@ -1,7 +1,16 @@
 import { supabase, isSupabaseConfigured } from '@/services/supabaseClient';
+import { formatDuration } from '@/features/player/services/youtubeService';
 import type { Room, RoomPrivacy, RoomSettings, RoomMember, RoomRole } from '@/types/database.types';
 
 const LOCAL_ROOMS_KEY = 'jamroom_local_rooms';
+
+export interface ActiveRoomSummary extends Room {
+  host?: string;
+  current_song?: string;
+  duration?: string;
+  members_count?: number;
+  shared_speakers?: boolean;
+}
 
 export interface CreateRoomInput {
   name: string;
@@ -123,35 +132,97 @@ export async function getRoomBySlug(slug: string): Promise<Room | null> {
 }
 
 /**
- * Fetches all public active rooms for the Explore lobby.
+ * Fetches all public active rooms for the Explore lobby and homepage,
+ * enriched with live host profile, currently playing song, and member counts.
  */
-export async function getPublicRooms(searchQuery?: string): Promise<Room[]> {
+export async function getPublicRooms(searchQuery?: string): Promise<ActiveRoomSummary[]> {
+  const resultRooms: ActiveRoomSummary[] = [];
+
   if (isSupabaseConfigured) {
-    let query = supabase
-      .from('rooms')
-      .select('*')
-      .eq('status', 'active')
-      .eq('privacy', 'public')
-      .order('created_at', { ascending: false });
+    try {
+      // 1. Attempt joined query with owner profile and current playback state
+      let query = supabase
+        .from('rooms')
+        .select(`
+          *,
+          owner:profiles(display_name, username),
+          playback_state:playback_states(
+            is_playing,
+            position_seconds,
+            current_song:songs(id, title, artist_channel, duration_seconds)
+          ),
+          members:room_members(count)
+        `)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false });
 
-    if (searchQuery && searchQuery.trim()) {
-      query = query.ilike('name', `%${searchQuery.trim()}%`);
-    }
+      if (searchQuery && searchQuery.trim()) {
+        query = query.ilike('name', `%${searchQuery.trim()}%`);
+      }
 
-    const { data, error } = await query;
-    if (error) {
-      console.warn('[getPublicRooms] Supabase query error:', error);
+      let { data, error } = await query;
+
+      // If joined foreign keys failed (e.g. relationship naming), fallback to direct select
+      if (error) {
+        let fallbackQuery = supabase
+          .from('rooms')
+          .select('*')
+          .eq('status', 'active')
+          .order('created_at', { ascending: false });
+
+        if (searchQuery && searchQuery.trim()) {
+          fallbackQuery = fallbackQuery.ilike('name', `%${searchQuery.trim()}%`);
+        }
+
+        const fallbackRes = await fallbackQuery;
+        data = fallbackRes.data;
+      }
+
+      if (data && data.length > 0) {
+        data.forEach((r: any) => {
+          const ownerProfile = r.owner;
+          const hostName = ownerProfile?.display_name || ownerProfile?.username || 'DJ Host';
+          const pb = Array.isArray(r.playback_state) ? r.playback_state[0] : r.playback_state;
+          const song = pb?.current_song;
+          const durSec = song?.duration_seconds || 0;
+
+          resultRooms.push({
+            ...r,
+            host: hostName,
+            current_song: song?.title || (pb?.is_playing ? 'Playing Audio' : 'Lounge Idle'),
+            duration: durSec > 0 ? formatDuration(durSec) : '--:--',
+            members_count: (Array.isArray(r.members) && r.members[0]?.count) || 1,
+            shared_speakers: Boolean(r.settings?.shared_speakers),
+          });
+        });
+      }
+    } catch (err) {
+      console.warn('[getPublicRooms] Supabase fetch warning:', err);
     }
-    if (data && data.length > 0) return data as Room[];
   }
 
-  // Local fallback
-  const localRooms = getLocalRooms().filter((r) => r.status === 'active' && r.privacy === 'public');
-  if (searchQuery && searchQuery.trim()) {
-    const q = searchQuery.toLowerCase();
-    return localRooms.filter((r) => r.name.toLowerCase().includes(q) || r.slug.includes(q));
+  // Also include any local rooms created offline/locally if not already in results
+  const localRooms = getLocalRooms().filter((r) => r.status === 'active');
+  for (const lr of localRooms) {
+    if (!resultRooms.some((r) => r.slug === lr.slug || r.id === lr.id)) {
+      if (
+        !searchQuery ||
+        lr.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        lr.slug.includes(searchQuery.toLowerCase())
+      ) {
+        resultRooms.push({
+          ...lr,
+          host: 'Local Host',
+          current_song: 'Lounge Idle',
+          duration: '--:--',
+          members_count: 1,
+          shared_speakers: Boolean(lr.settings?.shared_speakers),
+        });
+      }
+    }
   }
-  return localRooms;
+
+  return resultRooms;
 }
 
 /**

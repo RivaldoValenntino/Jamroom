@@ -19,6 +19,8 @@ export interface YouTubePlayerRef {
   getCurrentTime: () => number;
   getDuration: () => number;
   getPlayerState: () => number;
+  setPlaybackRate: (rate: number) => void;
+  getPlaybackRate: () => number;
 }
 
 interface YouTubePlayerProps {
@@ -27,6 +29,7 @@ interface YouTubePlayerProps {
   isMuted?: boolean;
   onReady?: () => void;
   onStateChange?: (state: number) => void;
+  onDurationChange?: (duration: number) => void;
   onError?: (errorCode: number) => void;
   className?: string;
 }
@@ -59,7 +62,19 @@ function loadYouTubeIframeApi(): Promise<void> {
 }
 
 export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(
-  ({ videoId, volume = 80, isMuted = false, onReady, onStateChange, onError, className }, ref) => {
+  (
+    {
+      videoId,
+      volume = 80,
+      isMuted = false,
+      onReady,
+      onStateChange,
+      onDurationChange,
+      onError,
+      className,
+    },
+    ref
+  ) => {
     const containerId = useRef(`yt-player-${Math.random().toString(36).substring(2, 9)}`);
     const playerInstance = useRef<any>(null);
     const [isPlayerReady, setIsPlayerReady] = useState(false);
@@ -162,6 +177,25 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(
           }
           return -1;
         },
+        setPlaybackRate: (rate: number) => {
+          if (playerInstance.current?.setPlaybackRate) {
+            try {
+              playerInstance.current.setPlaybackRate(rate);
+            } catch {
+              // Ignore
+            }
+          }
+        },
+        getPlaybackRate: () => {
+          if (playerInstance.current?.getPlaybackRate) {
+            try {
+              return playerInstance.current.getPlaybackRate() || 1;
+            } catch {
+              return 1;
+            }
+          }
+          return 1;
+        },
       }),
       []
     );
@@ -208,10 +242,18 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(
                   event.target.unMute();
                   event.target.setVolume(volume);
                 }
+                const dur = event.target.getDuration?.();
+                if (dur && dur > 0 && onDurationChange) {
+                  onDurationChange(Math.round(dur));
+                }
                 if (onReady) onReady();
               },
               onStateChange: (event: any) => {
                 if (!isMounted) return;
+                const dur = event.target.getDuration?.();
+                if (dur && dur > 0 && onDurationChange) {
+                  onDurationChange(Math.round(dur));
+                }
                 if (onStateChange) onStateChange(event.data);
               },
               onError: (event: any) => {
