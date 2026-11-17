@@ -32,6 +32,7 @@ import { NowPlayingStage } from '@/features/player/components/NowPlayingStage';
 import { MusicSearchModal } from '@/features/player/components/MusicSearchModal';
 import { PlaylistModal } from '@/features/playlist/components/PlaylistModal';
 import { RoomHistoryModal } from '@/features/playlist/components/RoomHistoryModal';
+import { recordPlaybackHistory } from '@/features/playlist/services/playlistService';
 import { leaveRoom } from '@/features/room/services/roomService';
 import type { Room } from '@/types/database.types';
 
@@ -123,6 +124,20 @@ export function RoomPage() {
       window.removeEventListener('pagehide', handleTabLeave);
     };
   }, [currentRoom?.id, user?.id, isHost]);
+
+  // Automatically record track into lounge playback history the moment it starts playing (minimal pernah di-play)
+  useEffect(() => {
+    if (!currentRoom?.id || !currentQueueItem?.song_id) return;
+    const song = currentQueueItem.song;
+    if (song) {
+      recordPlaybackHistory(
+        currentRoom.id,
+        currentQueueItem.song_id,
+        song.duration_seconds || 0,
+        song
+      );
+    }
+  }, [currentRoom?.id, currentQueueItem?.id, currentQueueItem?.song_id]);
 
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
@@ -251,6 +266,7 @@ export function RoomPage() {
       <RoomHistoryModal
         isOpen={isHistoryOpen}
         roomId={currentRoom.id}
+        currentSongId={currentQueueItem?.song_id}
         onClose={() => setIsHistoryOpen(false)}
         onRequeue={addSong}
       />

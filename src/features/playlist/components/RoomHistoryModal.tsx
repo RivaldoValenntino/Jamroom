@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { History, Plus, Loader2, Music, Check } from 'lucide-react';
+import { History, Plus, Loader2, Music, Check, Volume2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -8,6 +8,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   fetchRoomPlaybackHistory,
   PlaybackHistoryItem,
@@ -17,6 +18,7 @@ import { formatDuration } from '@/features/player/services/youtubeService';
 interface RoomHistoryModalProps {
   isOpen: boolean;
   roomId: string;
+  currentSongId?: string;
   onClose: () => void;
   onRequeue: (song: {
     youtubeId: string;
@@ -30,6 +32,7 @@ interface RoomHistoryModalProps {
 export function RoomHistoryModal({
   isOpen,
   roomId,
+  currentSongId,
   onClose,
   onRequeue,
 }: RoomHistoryModalProps) {
@@ -97,7 +100,7 @@ export function RoomHistoryModal({
               <History className="h-8 w-8 text-muted-foreground/40 mb-2" />
               <p className="text-xs font-semibold text-foreground">No songs played yet</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Completed tracks will automatically be archived here.
+                Tracks played in this lounge will automatically appear here.
               </p>
             </div>
           ) : (
@@ -105,6 +108,7 @@ export function RoomHistoryModal({
               const song = item.song;
               const isRequeued = requeuedIds.has(item.id);
               const isRequeueing = requeueingId === item.id;
+              const isCurrentPlaying = currentSongId && item.song_id === currentSongId;
 
               return (
                 <div
@@ -126,9 +130,20 @@ export function RoomHistoryModal({
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-foreground truncate text-xs" title={song?.title}>
-                      {song?.title || 'Unknown Track'}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-medium text-foreground truncate text-xs" title={song?.title}>
+                        {song?.title || 'Unknown Track'}
+                      </p>
+                      {isCurrentPlaying && (
+                        <Badge
+                          variant="default"
+                          className="text-[9px] px-1 py-0 gap-0.5 bg-emerald-500/20 text-emerald-300 border-emerald-500/30 shrink-0 font-mono"
+                        >
+                          <Volume2 className="h-2 w-2 animate-pulse" />
+                          PLAYING
+                        </Badge>
+                      )}
+                    </div>
                     <p className="text-[10px] text-muted-foreground truncate">
                       {song?.artist_channel || 'YouTube'} • {formatDuration(item.duration_seconds)}
                     </p>

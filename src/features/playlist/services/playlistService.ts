@@ -133,26 +133,158 @@ export async function importPlaylistToRoom(roomId: string, playlistId: string): 
   return 0;
 }
 
-export async function fetchRoomPlaybackHistory(roomId: string): Promise<PlaybackHistoryItem[]> {
+export async function recordPlaybackHistory(
+  roomId: string,
+  songId: string,
+  durationSeconds: number,
+  song?: Song
+): Promise<void> {
   if (isSupabaseConfigured) {
-    const { data, error } = await supabase
-      .from('playback_history')
-      .select('*, song:songs(*), played_by_profile:profiles(display_name)')
-      .eq('room_id', roomId)
-      .order('played_at', { ascending: false })
-      .limit(30);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    if (error) {
-      console.warn('[fetchRoomPlaybackHistory] error:', error);
-      return [];
+      // Deduplicate consecutive entry for same track in room within 30s
+      const thirtySecsAgo = new Date(Date.now() - 30000).toISOString();
+      const { data: recent } = await supabase
+        .from('playback_history')
+        .select('id')
+        .eq('room_id', roomId)
+        .eq('song_id', songId)
+        .gte('played_at', thirtySecsAgo)
+        .limit(1);
+
+      if (!recent || recent.length === 0) {
+        await supabase.from('playback_history').insert({
+          room_id: roomId,
+          song_id: songId,
+          played_by: user?.id || null,
+          played_at: new Date().toISOString(),
+          duration_seconds: durationSeconds,
+        });
+      }
+    } catch (err) {
+      console.warn('[recordPlaybackHistory] error:', err);
     }
-    return (data || []) as PlaybackHistoryItem[];
   }
 
-  // Local fallback
+  // Also maintain in local storage
+  try {
+    const key = `${LOCAL_HISTORY_KEY_PREFIX}${roomId}`;
+    const raw = localStorage.getItem(key);
+    const existing: PlaybackHistoryItem[] = raw ? JSON.parse(raw) : [];
+    const isDup = existing.some(
+      (e) => e.song_id === songId && Date.now() - new Date(e.played_at).getTime() < 30000
+    );
+    if (!isDup) {
+      existing.unshift({
+        id: crypto.randomUUID(),
+        room_id: roomId,
+        song_id: songId,
+        played_at: new Date().toISOString(),
+        duration_seconds: durationSeconds,
+        song,
+      });
+      localStorage.setItem(key, JSON.stringify(existing.slice(0, 50)));
+    }
+  } catch {
+    // Ignore
+  }
+}
+
+export async function fetchRoomPlaybackHistory(roomId: string): Promise<PlaybackHistoryItem[]> {
+  const historyList: PlaybackHistoryItem[] = [];
+  const seenSongIds = new Set<string>();
+
+  if (isSupabaseConfigured) {
+    try {
+      // 1. Fetch from authoritative playback_history table
+      let { data, error } = await supabase
+        .from('playback_history')
+        .select('*, song:songs(*), played_by_profile:profiles(display_name)')
+        .eq('room_id', roomId)
+        .order('played_at', { ascending: false })
+        .limit(50);
+
+      // Fallback if profiles FK relationship alias has issue
+      if (error) {
+        const fallbackRes = await supabase
+          .from('playback_history')
+          .select('*, song:songs(*)')
+          .eq('room_id', roomId)
+          .order('played_at', { ascending: false })
+          .limit(50);
+        data = fallbackRes.data;
+      }
+
+      if (data && data.length > 0) {
+        for (const item of data as PlaybackHistoryItem[]) {
+          if (item.song) {
+            historyList.push(item);
+            seenSongIds.add(item.song_id);
+          }
+        }
+      }
+
+      // 2. Augment with tracks currently 'playing' or 'played' in queue_items
+      // Ensures that any song that has ever started playing appears in history immediately
+      const { data: queueItems } = await supabase
+        .from('queue_items')
+        .select('id, room_id, song_id, updated_at, song:songs(*)')
+        .eq('room_id', roomId)
+        .in('status', ['playing', 'played'])
+        .order('updated_at', { ascending: false });
+
+      if (queueItems && queueItems.length > 0) {
+        for (const qi of queueItems as any[]) {
+          if (qi.song && !seenSongIds.has(qi.song_id)) {
+            historyList.push({
+              id: qi.id,
+              room_id: qi.room_id,
+              song_id: qi.song_id,
+              played_at: qi.updated_at || new Date().toISOString(),
+              duration_seconds: qi.song.duration_seconds || 0,
+              song: qi.song,
+            });
+            seenSongIds.add(qi.song_id);
+          }
+        }
+      }
+
+      if (historyList.length > 0) {
+        historyList.sort((a, b) => new Date(b.played_at).getTime() - new Date(a.played_at).getTime());
+        return historyList;
+      }
+    } catch (err) {
+      console.warn('[fetchRoomPlaybackHistory] Supabase fetch error:', err);
+    }
+  }
+
+  // 3. Local Storage Fallback
   try {
     const raw = localStorage.getItem(`${LOCAL_HISTORY_KEY_PREFIX}${roomId}`);
-    return raw ? JSON.parse(raw) : [];
+    const localItems: PlaybackHistoryItem[] = raw ? JSON.parse(raw) : [];
+
+    // Also check local queue for playing/played items
+    const localQueueRaw = localStorage.getItem(`jamroom_local_queue_${roomId}`);
+    const localQueue = localQueueRaw ? JSON.parse(localQueueRaw) : [];
+    for (const qi of localQueue) {
+      if ((qi.status === 'playing' || qi.status === 'played') && qi.song) {
+        if (!localItems.some((li) => li.song_id === qi.song_id)) {
+          localItems.unshift({
+            id: qi.id,
+            room_id: roomId,
+            song_id: qi.song_id,
+            played_at: qi.updated_at || new Date().toISOString(),
+            duration_seconds: qi.song.duration_seconds || 0,
+            song: qi.song,
+          });
+        }
+      }
+    }
+
+    return localItems;
   } catch {
     return [];
   }

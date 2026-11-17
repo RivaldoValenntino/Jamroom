@@ -1238,3 +1238,53 @@ BEGIN
 END;
 $$;
 
+
+-- ============================================================================
+-- 15.15 PLAYBACK HISTORY AUTO-RECORD TRIGGER
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.trg_record_playback_history()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_song public.songs%ROWTYPE;
+BEGIN
+    IF NEW.status = 'playing' AND (OLD.status IS NULL OR OLD.status <> 'playing') THEN
+        SELECT * INTO v_song FROM public.songs WHERE id = NEW.song_id;
+        IF FOUND THEN
+            IF NOT EXISTS (
+                SELECT 1 FROM public.playback_history
+                WHERE room_id = NEW.room_id
+                  AND song_id = NEW.song_id
+                  AND played_at >= (clock_timestamp() - INTERVAL '15 seconds')
+            ) THEN
+                INSERT INTO public.playback_history (
+                    room_id,
+                    song_id,
+                    played_by,
+                    played_at,
+                    duration_seconds
+                ) VALUES (
+                    NEW.room_id,
+                    NEW.song_id,
+                    NEW.added_by,
+                    clock_timestamp(),
+                    COALESCE(v_song.duration_seconds, 0)
+                );
+            END IF;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_queue_item_to_history ON public.queue_items;
+CREATE TRIGGER trg_queue_item_to_history
+AFTER INSERT OR UPDATE OF status ON public.queue_items
+FOR EACH ROW
+WHEN (NEW.status = 'playing')
+EXECUTE FUNCTION public.trg_record_playback_history();
+
+

@@ -141,7 +141,7 @@ export function HomePage() {
             to="/explore"
             className="text-xs text-muted-foreground hover:text-foreground font-medium flex items-center gap-1"
           >
-            View all directory <ArrowRight className="h-3 w-3" />
+            View all active lounges <ArrowRight className="h-3 w-3" />
           </Link>
         </div>
 
@@ -230,7 +230,7 @@ export function HomePage() {
                   <div className="col-span-2 flex justify-end">
                     <Link to={`/rooms/${room.slug}`}>
                       <Button size="sm" variant="outline" className="h-7 px-3 text-xs font-medium">
-                        Listen
+                        Join
                       </Button>
                     </Link>
                   </div>
