@@ -9,6 +9,8 @@ interface QueuePanelProps {
   upcomingQueue: QueueItem[];
   canAddSong: boolean;
   canManageQueue: boolean;
+  userRole?: 'owner' | 'moderator' | 'member';
+  deleteQueuePermission?: 'host_only' | 'host_and_mods_only' | 'anyone';
   currentUserId: string | null;
   onOpenSearch: () => void;
   onOpenHistory?: () => void;
@@ -23,6 +25,8 @@ export function QueuePanel({
   upcomingQueue,
   canAddSong,
   canManageQueue,
+  userRole = 'member',
+  deleteQueuePermission = 'host_and_mods_only',
   currentUserId,
   onOpenSearch,
   onOpenHistory,
@@ -34,6 +38,28 @@ export function QueuePanel({
   const totalSeconds = upcomingQueue.reduce((acc, item) => {
     return acc + (item.song?.duration_seconds || 0);
   }, 0);
+
+  // Authoritative deletion permission check
+  const canDeleteItem = (item: QueueItem | null) => {
+    if (!item) return false;
+    // Room Owner / Host ALWAYS has full deletion authority
+    if (userRole === 'owner') return true;
+
+    if (deleteQueuePermission === 'host_only') {
+      return false;
+    }
+
+    if (deleteQueuePermission === 'host_and_mods_only') {
+      if (userRole === 'moderator') return true;
+      return Boolean(currentUserId && item.added_by === currentUserId);
+    }
+
+    if (deleteQueuePermission === 'anyone') {
+      return true;
+    }
+
+    return false;
+  };
 
   return (
     <div className={`flex flex-col h-full overflow-hidden bg-surface/30 ${className || ''}`}>
@@ -125,6 +151,19 @@ export function QueuePanel({
                 {currentQueueItem.added_by_profile && ` • Queued by ${currentQueueItem.added_by_profile.display_name}`}
               </p>
             </div>
+
+            {/* Direct Delete Current Playing Song */}
+            {canDeleteItem(currentQueueItem) && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => onRemoveItem(currentQueueItem.id)}
+                className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
+                title="Hapus lagu ini & lanjut ke lagu berikutnya"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </div>
         ) : null}
 
@@ -132,8 +171,7 @@ export function QueuePanel({
         {upcomingQueue.length > 0 ? (
           upcomingQueue.map((item, index) => {
             const song = item.song;
-            const canDelete =
-              canManageQueue || (currentUserId && item.added_by === currentUserId);
+            const canDelete = canDeleteItem(item);
 
             return (
               <div

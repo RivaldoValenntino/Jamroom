@@ -13,6 +13,7 @@ import {
   Disc,
   Radio,
   Music,
+  Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
@@ -30,12 +31,14 @@ interface NowPlayingStageProps {
   positionSeconds: number;
   syncStatus?: 'in_sync' | 'buffering' | 'drift_correcting' | 'idle';
   canControlPlayback: boolean;
+  canDeleteSong?: boolean;
   skipVotesCount: number;
   skipVotesRequired: number;
   hasVotedToSkip: boolean;
   onTogglePlay: () => void;
   onNextTrack: () => void;
   onVoteSkip: () => void;
+  onDeleteCurrentSong?: () => void;
   onSeek: (seconds: number) => void;
   onOpenSearch: () => void;
 }
@@ -47,12 +50,14 @@ export function NowPlayingStage({
   positionSeconds,
   syncStatus: externalSyncStatus,
   canControlPlayback,
+  canDeleteSong,
   skipVotesCount,
   skipVotesRequired,
   hasVotedToSkip,
   onTogglePlay,
   onNextTrack,
   onVoteSkip,
+  onDeleteCurrentSong,
   onSeek,
   onOpenSearch,
 }: NowPlayingStageProps) {
@@ -535,6 +540,21 @@ export function NowPlayingStage({
                 Skip ({skipVotesCount}/{skipVotesRequired})
               </span>
             </Button>
+
+            {/* Direct Delete Track Button (Authoritative) */}
+            {canDeleteSong && onDeleteCurrentSong && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!currentSong}
+                onClick={onDeleteCurrentSong}
+                className="h-8 gap-1 text-xs font-mono px-2 text-muted-foreground hover:text-destructive hover:border-destructive/40 shrink-0"
+                title="Hapus lagu ini seketika (Otoritas Room)"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Delete</span>
+              </Button>
+            )}
 
             {/* Playback Rate / Speed Selector */}
             <Button

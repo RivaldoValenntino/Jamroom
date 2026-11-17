@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS public.rooms (
         "shared_speakers": false,
         "add_to_queue_permission": "anyone",
         "reorder_queue_permission": "host_and_mods_only",
+        "delete_queue_permission": "host_and_mods_only",
         "vote_skip_enabled": true,
         "skip_vote_threshold_percent": 50,
         "max_queue_items_per_user": 5,
@@ -301,12 +302,24 @@ CREATE POLICY "Members can insert queue items" ON public.queue_items FOR INSERT 
 DROP POLICY IF EXISTS "Members or mods can delete queue items" ON public.queue_items;
 CREATE POLICY "Members or mods can delete queue items" ON public.queue_items FOR DELETE
 USING (
-    auth.uid() = added_by OR
+    -- Room owner can always delete any queue item
     EXISTS (
-        SELECT 1 FROM public.room_members rm
-        WHERE rm.room_id = queue_items.room_id
-          AND rm.user_id = auth.uid()
-          AND rm.role IN ('owner', 'moderator')
+        SELECT 1 FROM public.rooms r
+        WHERE r.id = queue_items.room_id AND r.owner_id = auth.uid()
+    )
+    OR
+    -- Check role and room delete permissions
+    EXISTS (
+        SELECT 1 FROM public.rooms r
+        LEFT JOIN public.room_members rm ON rm.room_id = r.id AND rm.user_id = auth.uid()
+        WHERE r.id = queue_items.room_id AND (
+            COALESCE(r.settings->>'delete_queue_permission', 'host_and_mods_only') = 'anyone'
+            OR
+            (
+                COALESCE(r.settings->>'delete_queue_permission', 'host_and_mods_only') = 'host_and_mods_only'
+                AND (rm.role IN ('owner', 'moderator') OR queue_items.added_by = auth.uid())
+            )
+        )
     )
 );
 

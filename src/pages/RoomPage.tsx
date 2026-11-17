@@ -150,6 +150,20 @@ export function RoomPage() {
     isHost ||
     userRole === 'moderator';
 
+  // Deletion permission hierarchy (Host authority)
+  const deletePermission = currentRoom.settings?.delete_queue_permission || 'host_and_mods_only';
+  const canDeleteCurrentSong =
+    isHost ||
+    (deletePermission === 'host_and_mods_only' &&
+      (userRole === 'moderator' || (user?.id && currentQueueItem?.added_by === user.id))) ||
+    deletePermission === 'anyone';
+
+  const handleDeleteCurrentSong = () => {
+    if (currentQueueItem) {
+      removeSong(currentQueueItem.id);
+    }
+  };
+
   return (
     <div className="flex h-[calc(100vh-3.25rem)] flex-col bg-background overflow-hidden relative">
       {/* Passcode Modal Overlay */}
@@ -279,6 +293,8 @@ export function RoomPage() {
             upcomingQueue={upcomingQueue}
             canAddSong={canAddSong}
             canManageQueue={canManageQueue}
+            userRole={isHost ? 'owner' : userRole}
+            deleteQueuePermission={deletePermission}
             currentUserId={user?.id || null}
             onOpenSearch={() => setIsSearchOpen(true)}
             onOpenPlaylists={() => setIsPlaylistOpen(true)}
@@ -301,6 +317,8 @@ export function RoomPage() {
             positionSeconds={positionSeconds}
             syncStatus={syncStatus}
             canControlPlayback={canControlPlayback}
+            canDeleteSong={canDeleteCurrentSong}
+            onDeleteCurrentSong={handleDeleteCurrentSong}
             skipVotesCount={skipVotesCount}
             skipVotesRequired={skipVotesRequired}
             hasVotedToSkip={hasVotedToSkip}

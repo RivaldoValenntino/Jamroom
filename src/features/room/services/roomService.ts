@@ -433,6 +433,7 @@ function createLocalRoom(input: CreateRoomInput, slug: string): CreateRoomResult
       shared_speakers: input.settings?.shared_speakers ?? false,
       add_to_queue_permission: 'anyone',
       reorder_queue_permission: 'host_and_mods_only',
+      delete_queue_permission: 'host_and_mods_only',
       vote_skip_enabled: true,
       skip_vote_threshold_percent: 50,
       max_queue_items_per_user: 5,

@@ -35,6 +35,7 @@ export function RoomSettingsModal({
     shared_speakers: room.settings?.shared_speakers ?? false,
     add_to_queue_permission: room.settings?.add_to_queue_permission ?? 'anyone',
     reorder_queue_permission: room.settings?.reorder_queue_permission ?? 'host_and_mods_only',
+    delete_queue_permission: room.settings?.delete_queue_permission ?? 'host_and_mods_only',
     vote_skip_enabled: room.settings?.vote_skip_enabled ?? true,
     skip_vote_threshold_percent: room.settings?.skip_vote_threshold_percent ?? 50,
     max_queue_items_per_user: room.settings?.max_queue_items_per_user ?? 5,
@@ -205,6 +206,28 @@ export function RoomSettingsModal({
               >
                 <option value="anyone">Everyone (Open)</option>
                 <option value="host_and_mods_only">Host & Mods Only</option>
+              </select>
+            </div>
+
+            {/* Who can delete songs directly */}
+            <div className="flex items-center justify-between text-xs pt-2 border-t border-border/60">
+              <div>
+                <p className="font-medium text-foreground">Who can delete songs from queue?</p>
+                <p className="text-[10px] text-muted-foreground">Otoritas tertinggi ruang untuk menghapus lagu seketika</p>
+              </div>
+              <select
+                value={settings.delete_queue_permission ?? 'host_and_mods_only'}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    delete_queue_permission: e.target.value as 'host_only' | 'host_and_mods_only' | 'anyone',
+                  }))
+                }
+                className="bg-muted/40 border border-border text-foreground rounded text-xs px-2 py-1 focus:outline-none"
+              >
+                <option value="host_only">Host Only (Strict)</option>
+                <option value="host_and_mods_only">Host & Mods Only (Recommended)</option>
+                <option value="anyone">Everyone (Open)</option>
               </select>
             </div>
 

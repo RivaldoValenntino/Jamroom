@@ -162,17 +162,64 @@ export async function addTrackToQueue(
 }
 
 /**
- * Removes an item from the queue.
+ * Removes an item from the queue immediately.
+ * If the item being deleted is currently playing, smoothly advances playback to the next song.
  */
 export async function removeQueueItem(roomId: string, queueItemId: string): Promise<void> {
   if (isSupabaseConfigured) {
+    // 1. Check if the item being deleted is currently playing
+    const { data: item } = await supabase
+      .from('queue_items')
+      .select('status')
+      .eq('id', queueItemId)
+      .maybeSingle();
+
+    const isCurrentPlaying = item?.status === 'playing';
+
+    // 2. Delete the queue item
     const { error } = await supabase.from('queue_items').delete().eq('id', queueItemId);
     if (error) throw error;
+
+    // 3. If it was playing, advance to next track atomically
+    if (isCurrentPlaying) {
+      try {
+        await advanceToNextSong(roomId);
+      } catch (err) {
+        console.warn('[removeQueueItem] Auto-advance warning:', err);
+      }
+    }
     return;
   }
 
-  const queue = getLocalQueue(roomId).filter((i) => i.id !== queueItemId);
-  setLocalQueue(roomId, queue);
+  // Local Storage Fallback
+  const queue = getLocalQueue(roomId);
+  const targetItem = queue.find((i) => i.id === queueItemId);
+  const wasPlaying = targetItem?.status === 'playing';
+
+  const updatedQueue = queue.filter((i) => i.id !== queueItemId);
+  setLocalQueue(roomId, updatedQueue);
+
+  if (wasPlaying) {
+    const nextItem = updatedQueue.find((i) => i.status === 'queued');
+    if (nextItem) {
+      nextItem.status = 'playing';
+      setLocalQueue(roomId, updatedQueue);
+      setLocalPlayback(roomId, {
+        room_id: roomId,
+        current_queue_item_id: nextItem.id,
+        current_song_id: nextItem.song_id,
+        is_playing: true,
+        position_seconds: 0,
+        server_updated_at: new Date().toISOString(),
+        playback_version: Date.now(),
+        updated_by: 'host',
+        updated_at: new Date().toISOString(),
+        current_song: nextItem.song,
+      });
+    } else {
+      setLocalPlayback(roomId, null);
+    }
+  }
 }
 
 /**

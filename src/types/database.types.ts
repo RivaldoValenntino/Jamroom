@@ -25,6 +25,7 @@ export interface RoomSettings {
   shared_speakers: boolean;
   add_to_queue_permission: 'anyone' | 'host_and_mods_only';
   reorder_queue_permission: 'anyone' | 'host_and_mods_only';
+  delete_queue_permission?: 'host_only' | 'host_and_mods_only' | 'anyone';
   vote_skip_enabled: boolean;
   skip_vote_threshold_percent: number;
   max_queue_items_per_user: number;
