@@ -25,6 +25,7 @@ export interface YouTubePlayerRef {
 
 interface YouTubePlayerProps {
   videoId: string | null;
+  isPlaying?: boolean;
   volume?: number;
   isMuted?: boolean;
   onReady?: () => void;
@@ -65,6 +66,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(
   (
     {
       videoId,
+      isPlaying = true,
       volume = 80,
       isMuted = false,
       onReady,
@@ -279,7 +281,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(
       };
     }, []);
 
-    // Respond to videoId changes
+    // Respond to videoId changes - uses loadVideoById when isPlaying for ZERO-DELAY transitions!
     useEffect(() => {
       if (!isPlayerReady || !playerInstance.current) return;
 
@@ -287,7 +289,19 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(
         const currentId = playerInstance.current.getVideoData?.()?.video_id;
         if (currentId !== videoId) {
           try {
-            playerInstance.current.cueVideoById(videoId);
+            if (isPlaying) {
+              if (playerInstance.current.loadVideoById) {
+                playerInstance.current.loadVideoById({
+                  videoId,
+                  startSeconds: 0,
+                });
+              } else {
+                playerInstance.current.cueVideoById(videoId);
+                playerInstance.current.playVideo?.();
+              }
+            } else {
+              playerInstance.current.cueVideoById(videoId);
+            }
           } catch {
             // Ignore
           }
@@ -299,7 +313,21 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(
           // Ignore
         }
       }
-    }, [videoId, isPlayerReady]);
+    }, [videoId, isPlaying, isPlayerReady]);
+
+    // Respond to play/pause state toggles immediately
+    useEffect(() => {
+      if (!isPlayerReady || !playerInstance.current) return;
+      try {
+        if (isPlaying) {
+          playerInstance.current.playVideo?.();
+        } else {
+          playerInstance.current.pauseVideo?.();
+        }
+      } catch {
+        // Ignore
+      }
+    }, [isPlaying, isPlayerReady]);
 
     // Respond to volume and mute changes
     useEffect(() => {

@@ -21,6 +21,7 @@ import { YouTubePlayer, YouTubePlayerRef } from './YouTubePlayer';
 import { AutoplayBanner } from './AutoplayBanner';
 import { formatDuration } from '../services/youtubeService';
 import { usePlaybackSync } from '../hooks/usePlaybackSync';
+import { useAutoplayInterceptor } from '../hooks/useAutoplayInterceptor';
 import { updateSongDuration } from '@/features/room/services/queueService';
 import type { Song, PlaybackState } from '@/types/database.types';
 
@@ -110,6 +111,22 @@ export function NowPlayingStage({
   const [needsUserInteraction, setNeedsUserInteraction] = useState(false);
   const [isDraggingScrub, setIsDraggingScrub] = useState(false);
   const [scrubValue, setScrubValue] = useState(positionSeconds);
+
+  // Global user gesture interceptor: unblocks browser autoplay policy on ANY event across the window
+  useAutoplayInterceptor({
+    onUnlock: () => {
+      setNeedsUserInteraction(false);
+      setIsMuted(false);
+      if (playerRef.current) {
+        playerRef.current.unMute();
+        playerRef.current.setVolume(volume);
+        if (isPlaying) {
+          playerRef.current.play();
+        }
+      }
+    },
+    playerRef,
+  });
 
   // Synchronize playback position counter smoothly without stutter
   useEffect(() => {
@@ -355,6 +372,7 @@ export function NowPlayingStage({
             <YouTubePlayer
               ref={playerRef}
               videoId={currentSong.youtube_id}
+              isPlaying={isPlaying}
               volume={volume}
               isMuted={isMuted}
               onReady={handlePlayerReady}
@@ -362,6 +380,21 @@ export function NowPlayingStage({
               onDurationChange={handleDurationDetected}
               onError={handlePlayerError}
               className="absolute inset-0 w-full h-full"
+            />
+
+            {/* Click Interceptor Overlay:
+                Blocks native YouTube frame play/pause clicks, keeping authoritative control 100% in Jamroom.
+                Clicking video triggers Jamroom's room playback and unblocks browser autoplay. */}
+            <div
+              className="absolute inset-0 z-10 cursor-pointer select-none"
+              title={canControlPlayback ? (isPlaying ? 'Click to pause lounge' : 'Click to play lounge') : 'Jamroom Synchronized Audio'}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEnableAudio();
+                if (canControlPlayback) {
+                  onTogglePlay();
+                }
+              }}
             />
 
             {/* Sync Status Badge (Top-Left) */}

@@ -30,6 +30,7 @@ export function usePlaybackSync({
 
   const lastSeekTimeRef = useRef<number>(0);
   const lastKnownVersionRef = useRef<number>(0);
+  const lastSongIdRef = useRef<string | null>(null);
   const isAdvancingRef = useRef<boolean>(false);
   const rateAdjustedRef = useRef<boolean>(false);
 
@@ -118,18 +119,22 @@ export function usePlaybackSync({
     }
   }, [playerRef, playbackState, currentSong, effectiveDuration, calculateExpectedPosition, onTrackEnded]);
 
-  // Synchronize player ONLY when a NEW authoritative command version arrives
+  // Synchronize player when a NEW authoritative command version OR song arrives
   useEffect(() => {
     if (!playbackState || !playerRef.current) return;
 
-    // Reject stale or duplicate versions (avoids stutter on polling refreshes!)
+    const isNewSong = playbackState.current_song_id !== lastSongIdRef.current;
     const isNewVersion = playbackState.playback_version > lastKnownVersionRef.current;
-    if (!isNewVersion) {
+
+    // Proceed if there is a new song transition OR a new version
+    if (!isNewVersion && !isNewSong) {
       return;
     }
 
     lastKnownVersionRef.current = playbackState.playback_version;
+    lastSongIdRef.current = playbackState.current_song_id;
     isAdvancingRef.current = false;
+    lastSeekTimeRef.current = 0; // Clear seek cooldown immediately for song transitions!
 
     const expectedPos = calculateExpectedPosition();
     setEstimatedCurrentTime(expectedPos);
@@ -137,11 +142,17 @@ export function usePlaybackSync({
     const player = playerRef.current;
     if (playbackState.is_playing) {
       player.play();
-      // Only snap if drift is substantial on new command
-      const localTime = player.getCurrentTime();
-      if (Math.abs(localTime - expectedPos) > DRIFT_HARD_SEEK_THRESHOLD) {
-        player.seekTo(expectedPos);
-        lastSeekTimeRef.current = Date.now();
+      // If switching to new song, start at 0 (or expectedPos if > 1s)
+      if (isNewSong) {
+        if (expectedPos > 1.0) {
+          player.seekTo(expectedPos);
+        }
+      } else {
+        const localTime = player.getCurrentTime();
+        if (Math.abs(localTime - expectedPos) > DRIFT_HARD_SEEK_THRESHOLD) {
+          player.seekTo(expectedPos);
+          lastSeekTimeRef.current = Date.now();
+        }
       }
     } else {
       player.pause();
@@ -151,11 +162,11 @@ export function usePlaybackSync({
     setSyncState(playbackState.is_playing ? 'in_sync' : 'idle');
   }, [playbackState, playerRef, calculateExpectedPosition]);
 
-  // Periodic drift check interval (every 4 seconds, gentle check)
+  // Periodic drift check interval (calibrated 2.5s check for responsive, stutter-free playback)
   useEffect(() => {
     if (!playbackState?.is_playing) return;
 
-    const interval = setInterval(evaluateAndCorrectDrift, 4000);
+    const interval = setInterval(evaluateAndCorrectDrift, 2500);
     return () => clearInterval(interval);
   }, [playbackState?.is_playing, evaluateAndCorrectDrift]);
 

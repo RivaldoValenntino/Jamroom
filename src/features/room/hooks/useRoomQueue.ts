@@ -164,6 +164,11 @@ export function useRoomQueue(roomId: string | undefined) {
     reordered.splice(targetIndex, 0, moved);
     setUpcomingQueue(reordered);
 
+    // Automatically ensure room playback is active on reorder
+    if (!isPlaying) {
+      setIsPlaying(true);
+    }
+
     try {
       await reorderQueueItem(roomId, queueItemId, newPos);
     } catch (err) {
@@ -174,6 +179,14 @@ export function useRoomQueue(roomId: string | undefined) {
 
   const handlePlayImmediately = async (queueItemId: string) => {
     if (!roomId) return;
+    const target = upcomingQueue.find((i) => i.id === queueItemId);
+    if (target) {
+      // Optimistic instant play transition - zero UI lag
+      setCurrentQueueItem(target);
+      setUpcomingQueue(upcomingQueue.filter((i) => i.id !== queueItemId));
+      setIsPlaying(true);
+      setPositionSeconds(0);
+    }
     try {
       await playTrackNow(roomId, queueItemId);
       await refresh();
@@ -198,6 +211,14 @@ export function useRoomQueue(roomId: string | undefined) {
 
   const handleNextTrack = async () => {
     if (!roomId) return;
+    // Optimistic instant track advance
+    if (upcomingQueue.length > 0) {
+      const next = upcomingQueue[0];
+      setCurrentQueueItem(next);
+      setUpcomingQueue(upcomingQueue.slice(1));
+      setIsPlaying(true);
+      setPositionSeconds(0);
+    }
     await advanceToNextSong(roomId);
     setHasVotedToSkip(false);
     await refresh();

@@ -2,15 +2,12 @@ import type { FloatingReaction } from '../hooks/useFloatingReactions';
 
 interface FloatingReactionsProps {
   reactions: FloatingReaction[];
-  onSendReaction: (emoji: string) => void;
+  onSendReaction?: (emoji: string) => void;
   className?: string;
 }
 
-const EMOJI_OPTIONS = ['🔥', '❤️', '⚡', '🎉', '👏', '💃'];
-
 export function FloatingReactions({
   reactions,
-  onSendReaction,
   className,
 }: FloatingReactionsProps) {
   return (
@@ -36,7 +33,7 @@ export function FloatingReactions({
       </div>
 
       {/* Floating Quick Reaction Toolbar */}
-      <div className="flex items-center gap-1 bg-surface/90 backdrop-blur-xs p-1 rounded-full border border-border shadow-xs">
+      {/* <div className="flex items-center gap-1 bg-surface/90 backdrop-blur-xs p-1 rounded-full border border-border shadow-xs">
         {EMOJI_OPTIONS.map((emoji) => (
           <button
             key={emoji}
@@ -48,7 +45,7 @@ export function FloatingReactions({
             {emoji}
           </button>
         ))}
-      </div>
+      </div> */}
     </div>
   );
 }
