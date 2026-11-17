@@ -29,6 +29,8 @@ import { MemberRosterPanel } from '@/features/room/components/MemberRosterPanel'
 import { QueuePanel } from '@/features/room/components/QueuePanel';
 import { NowPlayingStage } from '@/features/player/components/NowPlayingStage';
 import { MusicSearchModal } from '@/features/player/components/MusicSearchModal';
+import { PlaylistModal } from '@/features/playlist/components/PlaylistModal';
+import { RoomHistoryModal } from '@/features/playlist/components/RoomHistoryModal';
 import type { Room } from '@/types/database.types';
 
 export function RoomPage() {
@@ -75,6 +77,8 @@ export function RoomPage() {
   const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isPlaylistOpen, setIsPlaylistOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [activeRoomState, setActiveRoomState] = useState<Room | null>(null);
 
@@ -183,6 +187,24 @@ export function RoomPage() {
         onAddSong={addSong}
       />
 
+      {/* Personal Playlists Modal */}
+      <PlaylistModal
+        isOpen={isPlaylistOpen}
+        roomId={currentRoom.id}
+        onClose={() => setIsPlaylistOpen(false)}
+        onImportComplete={() => {
+          setIsPlaylistOpen(false);
+        }}
+      />
+
+      {/* Room Playback History Modal */}
+      <RoomHistoryModal
+        isOpen={isHistoryOpen}
+        roomId={currentRoom.id}
+        onClose={() => setIsHistoryOpen(false)}
+        onRequeue={addSong}
+      />
+
       {/* Studio Stage Top Bar */}
       <header className="h-10 border-b border-border bg-surface/50 px-3 sm:px-4 flex items-center justify-between text-xs shrink-0">
         <div className="flex items-center gap-2.5 truncate">
@@ -259,6 +281,8 @@ export function RoomPage() {
             canManageQueue={canManageQueue}
             currentUserId={user?.id || null}
             onOpenSearch={() => setIsSearchOpen(true)}
+            onOpenPlaylists={() => setIsPlaylistOpen(true)}
+            onOpenHistory={() => setIsHistoryOpen(true)}
             onRemoveItem={removeSong}
             onMoveItem={moveSong}
           />

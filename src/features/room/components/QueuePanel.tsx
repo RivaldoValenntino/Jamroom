@@ -1,4 +1,4 @@
-import { Plus, Disc, Trash2, ArrowUp, ArrowDown, Music } from 'lucide-react';
+import { Plus, Disc, Trash2, ArrowUp, ArrowDown, Music, History, FolderHeart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { QueueItem } from '@/types/database.types';
@@ -11,6 +11,8 @@ interface QueuePanelProps {
   canManageQueue: boolean;
   currentUserId: string | null;
   onOpenSearch: () => void;
+  onOpenHistory?: () => void;
+  onOpenPlaylists?: () => void;
   onRemoveItem: (queueItemId: string) => void;
   onMoveItem?: (queueItemId: string, direction: 'up' | 'down') => void;
   className?: string;
@@ -23,6 +25,8 @@ export function QueuePanel({
   canManageQueue,
   currentUserId,
   onOpenSearch,
+  onOpenHistory,
+  onOpenPlaylists,
   onRemoveItem,
   onMoveItem,
   className,
@@ -46,17 +50,43 @@ export function QueuePanel({
           )}
         </div>
 
-        {canAddSong && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onOpenSearch}
-            className="h-6 text-[11px] gap-1 px-2 font-medium text-primary hover:text-primary hover:bg-primary/10"
-          >
-            <Plus className="h-3 w-3" />
-            <span>Add Song</span>
-          </Button>
-        )}
+        <div className="flex items-center gap-1">
+          {onOpenPlaylists && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onOpenPlaylists}
+              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+              title="Personal Playlists"
+            >
+              <FolderHeart className="h-3 w-3" />
+            </Button>
+          )}
+
+          {onOpenHistory && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onOpenHistory}
+              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+              title="Playback History"
+            >
+              <History className="h-3 w-3" />
+            </Button>
+          )}
+
+          {canAddSong && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onOpenSearch}
+              className="h-6 text-[11px] gap-1 px-2 font-medium text-primary hover:text-primary hover:bg-primary/10"
+            >
+              <Plus className="h-3 w-3" />
+              <span>Add Song</span>
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Queue Content List */}
