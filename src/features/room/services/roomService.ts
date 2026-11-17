@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from '@/services/supabaseClient';
-import type { Room, RoomPrivacy, RoomSettings } from '@/types/database.types';
+import type { Room, RoomPrivacy, RoomSettings, RoomMember, RoomRole } from '@/types/database.types';
 
 const LOCAL_ROOMS_KEY = 'jamroom_local_rooms';
 
@@ -165,6 +165,106 @@ export async function claimRoomOwnership(roomId: string, recoveryToken: string):
 export async function touchMemberActivity(roomId: string): Promise<void> {
   if (isSupabaseConfigured) {
     await supabase.rpc('rpc_touch_member_activity', { p_room_id: roomId });
+  }
+}
+
+/**
+ * Updates room metadata and settings. Caller must have owner/moderator role per RLS.
+ */
+export async function updateRoom(roomId: string, updates: Partial<Room>): Promise<Room> {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from('rooms')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', roomId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as Room;
+  }
+
+  // Local fallback
+  const rooms = getLocalRooms();
+  const idx = rooms.findIndex((r) => r.id === roomId);
+  if (idx === -1) throw new Error('Room not found');
+  rooms[idx] = { ...rooms[idx], ...updates, updated_at: new Date().toISOString() };
+  localStorage.setItem(LOCAL_ROOMS_KEY, JSON.stringify(rooms));
+  return rooms[idx];
+}
+
+/**
+ * Retrieves enrolled room members with their profiles.
+ */
+export async function getRoomMembers(roomId: string): Promise<RoomMember[]> {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from('room_members')
+      .select('*, profile:profiles(*)')
+      .eq('room_id', roomId)
+      .order('joined_at', { ascending: true });
+
+    if (error) {
+      console.warn('[getRoomMembers] error:', error);
+      return [];
+    }
+    return (data || []) as RoomMember[];
+  }
+
+  return [];
+}
+
+/**
+ * Updates a member's role (promote/demote).
+ */
+export async function updateMemberRole(roomId: string, userId: string, role: RoomRole): Promise<void> {
+  if (isSupabaseConfigured) {
+    const { error } = await supabase
+      .from('room_members')
+      .update({ role })
+      .eq('room_id', roomId)
+      .eq('user_id', userId);
+
+    if (error) throw error;
+  }
+}
+
+/**
+ * Removes (kicks) a member from a room.
+ */
+export async function kickMember(roomId: string, userId: string): Promise<void> {
+  if (isSupabaseConfigured) {
+    const { error } = await supabase
+      .from('room_members')
+      .delete()
+      .eq('room_id', roomId)
+      .eq('user_id', userId);
+
+    if (error) throw error;
+  }
+}
+
+/**
+ * Transfers room ownership to another user.
+ */
+export async function transferRoomOwnership(roomId: string, newOwnerId: string): Promise<void> {
+  if (isSupabaseConfigured) {
+    // 1. Update room owner_id
+    const { error: roomErr } = await supabase
+      .from('rooms')
+      .update({ owner_id: newOwnerId })
+      .eq('id', roomId);
+    if (roomErr) throw roomErr;
+
+    // 2. Set new owner's role to 'owner'
+    await supabase
+      .from('room_members')
+      .update({ role: 'owner' })
+      .eq('room_id', roomId)
+      .eq('user_id', newOwnerId);
   }
 }
 

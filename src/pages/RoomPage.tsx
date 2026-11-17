@@ -1,40 +1,41 @@
 import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
-  Play,
-  Pause,
-  SkipForward,
-  Volume2,
-  VolumeX,
   Users,
   MessageSquare,
   ListMusic,
   Share2,
   Settings,
-  Disc,
-  Plus,
-  Flame,
-  Volume1,
   KeyRound,
   Check,
   Radio,
+  Play,
+  Send,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Slider } from '@/components/ui/slider';
 import { useRoom } from '@/features/room/hooks/useRoom';
+import { useRoomQueue } from '@/features/room/hooks/useRoomQueue';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { PasscodeModal } from '@/components/room/PasscodeModal';
 import { RoomRecoveryModal } from '@/components/room/RoomRecoveryModal';
+import { RoomSettingsModal } from '@/features/room/components/RoomSettingsModal';
+import { MemberRosterPanel } from '@/features/room/components/MemberRosterPanel';
+import { QueuePanel } from '@/features/room/components/QueuePanel';
+import { NowPlayingStage } from '@/features/player/components/NowPlayingStage';
+import { MusicSearchModal } from '@/features/player/components/MusicSearchModal';
+import type { Room } from '@/types/database.types';
 
 export function RoomPage() {
   const { slugOrId } = useParams();
   const navigate = useNavigate();
+  const { user, profile } = useAuthStore();
 
   // Phase 3 Room Hook
   const {
     room,
-    isLoading,
+    isLoading: isRoomLoading,
     isHost,
     userRole,
     isPasscodeRequired,
@@ -43,12 +44,47 @@ export function RoomPage() {
     claimOwnership,
   } = useRoom(slugOrId);
 
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [volume, setVolume] = useState(80);
-  const [isMuted, setIsMuted] = useState(false);
+  // Phase 5 & 6 Collaborative Queue & Playback Hook
+  const {
+    currentQueueItem,
+    currentSong,
+    upcomingQueue,
+    isPlaying,
+    positionSeconds,
+    syncStatus,
+    skipVotesCount,
+    skipVotesRequired,
+    hasVotedToSkip,
+    addSong,
+    removeSong,
+    togglePlay,
+    nextTrack,
+    seek,
+    voteSkip,
+  } = useRoomQueue(room?.id);
+
+  // UI Modal & Tab States
   const [activeTab, setActiveTab] = useState<'player' | 'queue' | 'chat' | 'members'>('player');
+  const [rightSidebarTab, setRightSidebarTab] = useState<'chat' | 'members'>('chat');
   const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [activeRoomState, setActiveRoomState] = useState<Room | null>(null);
+
+  // Live Chat state
+  const [chatMessages, setChatMessages] = useState<Array<{ id: string; sender: string; text: string; time: string }>>([
+    {
+      id: 'welcome-msg',
+      sender: 'Jamroom System',
+      text: 'Synchronized audio stream initialized. All connected listeners hear the exact same timestamp.',
+      time: 'now',
+    },
+  ]);
+  const [chatInput, setChatInput] = useState('');
+
+  // Handle local state update when room settings change
+  const currentRoom = activeRoomState || room;
 
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
@@ -56,7 +92,24 @@ export function RoomPage() {
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  if (isLoading) {
+  const handleSendChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = chatInput.trim();
+    if (!trimmed) return;
+
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        sender: profile?.display_name || 'You',
+        text: trimmed,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+    ]);
+    setChatInput('');
+  };
+
+  if (isRoomLoading) {
     return (
       <div className="flex h-[calc(100vh-3.25rem)] items-center justify-center bg-background text-xs font-mono text-muted-foreground">
         <div className="flex items-center gap-2">
@@ -67,7 +120,7 @@ export function RoomPage() {
     );
   }
 
-  if (!room) {
+  if (!currentRoom) {
     return (
       <div className="flex h-[calc(100vh-3.25rem)] flex-col items-center justify-center bg-background p-4 text-center">
         <Radio className="h-8 w-8 text-muted-foreground mb-3 opacity-60" />
@@ -84,44 +137,75 @@ export function RoomPage() {
     );
   }
 
+  // Playback & Queue Permission evaluation
+  const isPartyMode = currentRoom.settings?.shared_speakers === true;
+  const canControlPlayback = isHost || userRole === 'moderator' || isPartyMode;
+  const canAddSong =
+    currentRoom.settings?.add_to_queue_permission === 'anyone' ||
+    isHost ||
+    userRole === 'moderator';
+  const canManageQueue =
+    currentRoom.settings?.reorder_queue_permission === 'anyone' ||
+    isHost ||
+    userRole === 'moderator';
+
   return (
     <div className="flex h-[calc(100vh-3.25rem)] flex-col bg-background overflow-hidden relative">
       {/* Passcode Modal Overlay */}
       {isPasscodeRequired && (
         <PasscodeModal
           isOpen={isPasscodeRequired}
-          roomName={room.name}
+          roomName={currentRoom.name}
           error={passcodeError}
           onSubmit={submitPasscode}
           onCancel={() => navigate('/explore')}
         />
       )}
 
-      {/* Room Host Recovery Modal */}
+      {/* Room Host Emergency Recovery Modal */}
       <RoomRecoveryModal
         isOpen={isRecoveryOpen}
-        roomName={room.name}
+        roomName={currentRoom.name}
         onClaim={claimOwnership}
         onClose={() => setIsRecoveryOpen(false)}
       />
 
+      {/* Room Settings Modal */}
+      <RoomSettingsModal
+        isOpen={isSettingsOpen}
+        room={currentRoom}
+        isHost={isHost}
+        onClose={() => setIsSettingsOpen(false)}
+        onRoomUpdated={(updated) => setActiveRoomState(updated)}
+      />
+
+      {/* Music Search & Queue Modal */}
+      <MusicSearchModal
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        onAddSong={addSong}
+      />
+
       {/* Studio Stage Top Bar */}
-      <div className="h-10 border-b border-border bg-surface/50 px-4 flex items-center justify-between text-xs shrink-0">
+      <header className="h-10 border-b border-border bg-surface/50 px-3 sm:px-4 flex items-center justify-between text-xs shrink-0">
         <div className="flex items-center gap-2.5 truncate">
           <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
           <span className="font-semibold text-foreground text-xs uppercase tracking-wider truncate">
-            {room.name}
+            {currentRoom.name}
           </span>
           <span className="text-muted-foreground hidden sm:inline">•</span>
-          <Badge variant={isHost ? 'default' : 'outline'} className="text-[10px] hidden sm:inline-flex py-0 px-1.5 font-mono">
+          <Badge
+            variant={isHost ? 'default' : 'outline'}
+            className="text-[10px] hidden sm:inline-flex py-0 px-1.5 font-mono"
+          >
             {isHost ? 'YOU ARE HOST' : userRole === 'moderator' ? 'MODERATOR' : 'LISTENER'}
           </Badge>
           <span className="text-[11px] font-mono text-muted-foreground hidden md:inline">
-            {room.settings?.shared_speakers ? 'PARTY MODE (SHARED SPEAKERS)' : 'DJ MODE (HOST ONLY)'}
+            {isPartyMode ? 'PARTY MODE (SHARED SPEAKERS)' : 'DJ MODE (HOST ONLY)'}
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {!isHost && (
             <Button
               variant="ghost"
@@ -145,11 +229,19 @@ export function RoomPage() {
             <span>{copiedLink ? 'Copied' : 'Invite'}</span>
           </Button>
 
-          <Button variant="ghost" size="icon-sm" className="h-6 w-6">
-            <Settings className="h-3 w-3" />
-          </Button>
+          {(isHost || userRole === 'moderator') && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setIsSettingsOpen(true)}
+              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+              title="Room Settings"
+            >
+              <Settings className="h-3 w-3" />
+            </Button>
+          )}
         </div>
-      </div>
+      </header>
 
       {/* Main Responsive 3-Column Studio Layout */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
@@ -159,190 +251,124 @@ export function RoomPage() {
             activeTab === 'queue' ? 'flex col-span-12' : 'hidden lg:flex'
           }`}
         >
-          <div className="px-3 py-2 border-b border-border flex items-center justify-between bg-muted/20">
-            <div className="flex items-center gap-1.5">
-              <ListMusic className="h-3.5 w-3.5 text-primary" />
-              <span className="font-semibold text-[11px] uppercase tracking-wider text-muted-foreground">
-                Queue (3)
-              </span>
-            </div>
-            <Button size="sm" variant="ghost" className="h-6 text-[11px] gap-1 px-2 font-medium text-primary">
-              <Plus className="h-3 w-3" />
-              Add Song
-            </Button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            {/* Now Playing Item */}
-            <div className="p-2 rounded border border-primary/40 bg-primary/10 flex items-center gap-2.5 text-xs">
-              <div className="h-7 w-7 rounded bg-primary/20 flex items-center justify-center shrink-0 text-primary">
-                <Disc className="h-4 w-4" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1">
-                  <Badge variant="default" className="text-[9px] px-1 py-0">NOW</Badge>
-                  <p className="font-semibold text-foreground truncate text-[11px]">One More Time</p>
-                </div>
-                <p className="text-[10px] text-muted-foreground truncate">Daft Punk • 05:20</p>
-              </div>
-            </div>
-
-            {/* Upcoming Queue Items */}
-            <div className="p-2 rounded border border-border bg-surface hover:bg-surface-hover flex items-center gap-2.5 text-xs transition-colors">
-              <span className="w-5 text-center font-mono text-[11px] text-muted-foreground">2</span>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-foreground truncate text-[11px]">Starboy</p>
-                <p className="text-[10px] text-muted-foreground truncate">The Weeknd • Queued by Sam</p>
-              </div>
-              <span className="font-mono text-[10px] text-muted-foreground">03:50</span>
-            </div>
-
-            <div className="p-2 rounded border border-border bg-surface hover:bg-surface-hover flex items-center gap-2.5 text-xs transition-colors">
-              <span className="w-5 text-center font-mono text-[11px] text-muted-foreground">3</span>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-foreground truncate text-[11px]">Levitating</p>
-                <p className="text-[10px] text-muted-foreground truncate">Dua Lipa • Queued by Jordan</p>
-              </div>
-              <span className="font-mono text-[10px] text-muted-foreground">03:23</span>
-            </div>
-          </div>
+          <QueuePanel
+            currentQueueItem={currentQueueItem}
+            upcomingQueue={upcomingQueue}
+            canAddSong={canAddSong}
+            canManageQueue={canManageQueue}
+            currentUserId={user?.id || null}
+            onOpenSearch={() => setIsSearchOpen(true)}
+            onRemoveItem={removeSong}
+          />
         </section>
 
         {/* CENTER STAGE: Synchronized YouTube Player & Controls */}
         <section
-          className={`lg:col-span-6 flex flex-col justify-between p-4 overflow-y-auto ${
+          className={`lg:col-span-6 flex flex-col justify-between overflow-y-auto ${
             activeTab === 'player' ? 'flex col-span-12' : 'hidden lg:flex'
           }`}
         >
-          {/* YouTube Video Container (16:9 Standard, visible at all times) */}
-          <div className="relative w-full aspect-video rounded-lg overflow-hidden border border-border bg-black flex flex-col items-center justify-center">
-            {/* Visual Screen Container */}
-            <div className="text-center p-4 max-w-sm">
-              <p className="text-xs uppercase font-mono tracking-wider text-muted-foreground mb-1">
-                Now Synchronizing Audio
-              </p>
-              <h2 className="text-base font-bold text-foreground mb-1">
-                Daft Punk — One More Time
-              </h2>
-              <p className="text-xs text-muted-foreground font-mono mb-4">
-                Master Audio: YouTube IFrame Engine • {room.max_members} Cap
-              </p>
-              <Button size="sm" variant="default" className="gap-1.5 text-xs h-8 px-4 font-semibold">
-                <Volume1 className="h-3.5 w-3.5" />
-                Join Listening (Enable Audio)
-              </Button>
-            </div>
-
-            <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 rounded bg-black/80 px-2 py-0.5 text-[10px] font-mono text-emerald-400 border border-emerald-500/20">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              <span>IN SYNC</span>
-            </div>
-          </div>
-
-          {/* Authoritative Playback Controls Bar */}
-          <div className="mt-4 border border-border rounded-lg bg-surface p-3 flex flex-col gap-2.5">
-            {/* Scrub Progress Bar */}
-            <div className="flex items-center gap-2.5 text-[11px] font-mono text-muted-foreground">
-              <span>01:24</span>
-              <Slider defaultValue={[26]} max={100} step={1} className="flex-1" />
-              <span>05:20</span>
-            </div>
-
-            {/* Action Bar */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="default"
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className="h-8 w-8 p-0"
-                  title={isPlaying ? 'Pause' : 'Play'}
-                >
-                  {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
-                </Button>
-
-                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground">
-                  <SkipForward className="h-4 w-4" />
-                </Button>
-
-                <div className="h-4 w-px bg-border mx-1" />
-
-                <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px] font-mono px-2">
-                  <Flame className="h-3 w-3 text-amber-400" />
-                  <span>Skip (2/5)</span>
-                </Button>
-              </div>
-
-              {/* Volume Slider */}
-              <div className="flex items-center gap-2 w-32">
-                <button
-                  onClick={() => setIsMuted(!isMuted)}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
-                  title="Toggle Mute"
-                >
-                  {isMuted || volume === 0 ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-                </button>
-                <Slider
-                  value={[isMuted ? 0 : volume]}
-                  onValueChange={(val) => {
-                    setVolume(val[0]);
-                    setIsMuted(false);
-                  }}
-                  max={100}
-                  className="flex-1"
-                />
-                <span className="font-mono text-[10px] text-muted-foreground w-6 text-right">
-                  {isMuted ? '0%' : `${volume}%`}
-                </span>
-              </div>
-            </div>
-          </div>
+          <NowPlayingStage
+            currentSong={currentSong}
+            isPlaying={isPlaying}
+            positionSeconds={positionSeconds}
+            syncStatus={syncStatus}
+            canControlPlayback={canControlPlayback}
+            skipVotesCount={skipVotesCount}
+            skipVotesRequired={skipVotesRequired}
+            hasVotedToSkip={hasVotedToSkip}
+            onTogglePlay={togglePlay}
+            onNextTrack={nextTrack}
+            onVoteSkip={voteSkip}
+            onSeek={seek}
+            onOpenSearch={() => setIsSearchOpen(true)}
+          />
         </section>
 
-        {/* RIGHT COLUMN: Live Chat & Presence */}
+        {/* RIGHT COLUMN: Live Chat & Presence Roster */}
         <section
           className={`lg:col-span-3 border-l border-border bg-surface/30 flex flex-col h-full overflow-hidden ${
             activeTab === 'chat' || activeTab === 'members' ? 'flex col-span-12' : 'hidden lg:flex'
           }`}
         >
+          {/* Header with Switcher Tabs */}
           <div className="px-3 py-2 border-b border-border flex items-center justify-between bg-muted/20">
-            <div className="flex items-center gap-1.5">
-              <MessageSquare className="h-3.5 w-3.5 text-primary" />
-              <span className="font-semibold text-[11px] uppercase tracking-wider text-muted-foreground">
-                Chat & Presence
-              </span>
+            <div className="flex items-center gap-1 bg-muted/50 p-0.5 rounded border border-border">
+              <button
+                type="button"
+                onClick={() => setRightSidebarTab('chat')}
+                className={`px-2 py-0.5 text-[11px] font-semibold rounded flex items-center gap-1 transition-colors ${
+                  rightSidebarTab === 'chat'
+                    ? 'bg-surface text-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <MessageSquare className="h-3 w-3" />
+                <span>Chat</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRightSidebarTab('members')}
+                className={`px-2 py-0.5 text-[11px] font-semibold rounded flex items-center gap-1 transition-colors ${
+                  rightSidebarTab === 'members'
+                    ? 'bg-surface text-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Users className="h-3 w-3" />
+                <span>People</span>
+              </button>
             </div>
+
             <div className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
-              <Users className="h-3 w-3" />
-              <span>Online</span>
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>LIVE</span>
             </div>
           </div>
 
-          {/* Chat Stream */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-2 text-xs">
-            <div className="text-center my-1 text-[10px] text-muted-foreground font-mono">
-              Session live • Master clock synchronized
-            </div>
-
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1.5 text-[11px]">
-                <span className="font-semibold text-primary">{isHost ? 'You (Host)' : 'Host'}</span>
-                <Badge variant="default" className="text-[8px] px-1 py-0">HOST</Badge>
-                <span className="text-[10px] font-mono text-muted-foreground ml-auto">now</span>
+          {/* Right Sidebar Body */}
+          {rightSidebarTab === 'chat' ? (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Chat Stream */}
+              <div className="flex-1 overflow-y-auto p-3 space-y-2 text-xs">
+                {chatMessages.map((msg) => (
+                  <div key={msg.id} className="space-y-0.5">
+                    <div className="flex items-center gap-1.5 text-[11px]">
+                      <span className="font-semibold text-primary">{msg.sender}</span>
+                      <span className="text-[10px] font-mono text-muted-foreground ml-auto">
+                        {msg.time}
+                      </span>
+                    </div>
+                    <p className="text-foreground text-xs bg-surface p-2 rounded border border-border leading-snug">
+                      {msg.text}
+                    </p>
+                  </div>
+                ))}
               </div>
-              <p className="text-foreground text-xs bg-surface p-2 rounded border border-border">
-                Welcome to {room.name}! Audio is synchronized with all listeners.
-              </p>
-            </div>
-          </div>
 
-          {/* Chat Input */}
-          <div className="p-2 border-t border-border bg-surface flex items-center gap-1.5">
-            <Input placeholder="Message room..." className="h-7 text-xs bg-muted/50 border-border rounded" />
-            <Button size="sm" variant="default" className="h-7 px-3 text-xs font-semibold">
-              Send
-            </Button>
-          </div>
+              {/* Chat Input */}
+              <form onSubmit={handleSendChat} className="p-2 border-t border-border bg-surface flex items-center gap-1.5">
+                <Input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Message listeners..."
+                  className="h-7 text-xs bg-muted/40 border-border rounded"
+                />
+                <Button type="submit" size="sm" variant="default" className="h-7 px-2.5 text-xs font-semibold">
+                  <Send className="h-3 w-3" />
+                </Button>
+              </form>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-hidden">
+              <MemberRosterPanel
+                roomId={currentRoom.id}
+                isHost={isHost}
+                userRole={userRole}
+                currentUserId={user?.id || null}
+              />
+            </div>
+          )}
         </section>
       </div>
 
@@ -365,11 +391,14 @@ export function RoomPage() {
           }`}
         >
           <ListMusic className="h-3.5 w-3.5 mb-0.5" />
-          <span>Queue (3)</span>
+          <span>Queue ({upcomingQueue.length + (currentQueueItem ? 1 : 0)})</span>
         </button>
 
         <button
-          onClick={() => setActiveTab('chat')}
+          onClick={() => {
+            setActiveTab('chat');
+            setRightSidebarTab('chat');
+          }}
           className={`flex flex-col items-center text-[10px] font-medium py-1 px-3 ${
             activeTab === 'chat' ? 'text-primary' : 'text-muted-foreground'
           }`}
@@ -379,13 +408,16 @@ export function RoomPage() {
         </button>
 
         <button
-          onClick={() => setActiveTab('members')}
+          onClick={() => {
+            setActiveTab('members');
+            setRightSidebarTab('members');
+          }}
           className={`flex flex-col items-center text-[10px] font-medium py-1 px-3 ${
             activeTab === 'members' ? 'text-primary' : 'text-muted-foreground'
           }`}
         >
           <Users className="h-3.5 w-3.5 mb-0.5" />
-          <span>Users</span>
+          <span>People</span>
         </button>
       </nav>
     </div>
