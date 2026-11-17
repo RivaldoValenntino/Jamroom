@@ -4,31 +4,31 @@
 
 @layer base {
   :root {
-    --background: 240 10% 4%;       /* Deepest Charcoal (#0a0a0c) */
-    --surface: 240 8% 8%;          /* Elevated Container (#141418) */
-    --surface-hover: 240 8% 12%;    /* Interactive Hover (#1f1f24) */
-    --foreground: 0 0% 98%;         /* Crisp White (#fbfbfb) */
+    --background: 240 5% 5%;       /* Neutral Deep Black (#0c0c0e) */
+    --surface: 240 5% 9%;          /* Clean Solid Panel (#161619) */
+    --surface-hover: 240 5% 13%;    /* Subtle Interactive Hover (#202024) */
+    --foreground: 0 0% 98%;         /* Clean White (#fafafa) */
     
-    --muted: 240 6% 15%;
-    --muted-foreground: 240 5% 65%; /* Soft Silver (#9e9ea7) */
+    --muted: 240 5% 16%;           /* Muted Surface (#27272b) */
+    --muted-foreground: 240 5% 60%; /* Neutral Grey (#98989f) */
     
-    --primary: 262 83% 58%;         /* Electric Purple (#7c3aed) */
+    --primary: 262 83% 58%;         /* Solid Violet Accent (#7c3aed) */
     --primary-foreground: 0 0% 100%;
     
-    --secondary: 187 92% 55%;       /* Neon Cyan (#22d3ee) */
-    --secondary-foreground: 240 10% 4%;
+    --secondary: 240 5% 16%;       /* Secondary Neutral (#27272b) */
+    --secondary-foreground: 0 0% 95%;
     
-    --accent: 330 81% 60%;          /* Vivid Magenta (#f43f5e) */
+    --accent: 262 83% 58%;
     --accent-foreground: 0 0% 100%;
     
-    --destructive: 0 84% 60%;
+    --destructive: 0 72% 51%;       /* Solid Red (#dc2626) */
     --destructive-foreground: 0 0% 100%;
     
-    --border: 240 6% 16%;
-    --input: 240 6% 18%;
+    --border: 240 5% 18%;          /* Crisp 1px Border (#2b2b30) */
+    --input: 240 5% 18%;
     --ring: 262 83% 58%;
     
-    --radius: 0.75rem;
+    --radius: 0.5rem;              /* 8px crisp radius */
   }
 }
 
@@ -37,41 +37,37 @@ body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   overflow-x: hidden;
+  letter-spacing: -0.011em;
 }
 
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: hsl(var(--background));
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted));
+  background: hsl(var(--border));
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.5);
+  background: hsl(var(--muted-foreground) / 0.4);
 }
 
-/* Glassmorphism helpers */
-.glass-panel {
-  background: rgba(20, 20, 24, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+/* Crisp Panel Styling - No Blurry AI Slop */
+.ui-panel {
+  background: hsl(var(--surface));
+  border: 1px solid hsl(var(--border));
 }
 
-.glass-panel-interactive {
-  background: rgba(20, 20, 24, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+.ui-panel-interactive {
+  background: hsl(var(--surface));
+  border: 1px solid hsl(var(--border));
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
-.glass-panel-interactive:hover {
-  background: rgba(31, 31, 36, 0.8);
-  border-color: rgba(124, 58, 237, 0.3);
-  box-shadow: 0 8px 32px -8px rgba(124, 58, 237, 0.2);
+.ui-panel-interactive:hover {
+  background: hsl(var(--surface-hover));
+  border-color: hsl(var(--muted-foreground) / 0.3);
 }

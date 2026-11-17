@@ -15,7 +15,7 @@ export function NotFoundPage() {
         The virtual listening room you are looking for does not exist, has ended, or was archived.
       </p>
       <Link to="/explore">
-        <Button variant="gradient" className="gap-2">
+        <Button variant="default" className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           Back to Live Lounges
         </Button>
