@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import {
   Compass,
   Search,
-  Users,
   Lock,
   Globe,
   Plus,
@@ -15,72 +14,52 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useUiStore } from '@/stores/useUiStore';
+import { useExploreRooms } from '@/features/room/hooks/useExploreRooms';
 
-const MOCK_EXPLORE_ROOMS = [
+const DEMO_ROOMS = [
   {
     id: 'room-1',
     slug: 'lofi-beats-lounge',
     name: 'Lo-Fi Chill & Code Beats',
     description: 'Relaxing 24/7 lo-fi hip hop, synthwave, and chillhop for study and deep focus.',
-    privacy: 'public',
+    privacy: 'public' as const,
     current_song: 'Lofi Girl - 1 A.M Study Session',
     duration: '03:42',
-    host: 'DJ Alex',
     members_count: 24,
-    shared_speakers: false,
-    tags: ['Lofi', 'Study', 'Coding'],
+    settings: { shared_speakers: false },
   },
   {
     id: 'room-2',
     slug: 'synthwave-cyberpunk',
     name: 'Cyberpunk Neon Radio 2077',
     description: 'Dark synth, retro electro, outrun and future bass for midnight hackers.',
-    privacy: 'public',
+    privacy: 'public' as const,
     current_song: 'Carpenter Brut - Turbo Killer',
     duration: '04:15',
-    host: 'CyberSam',
     members_count: 18,
-    shared_speakers: true,
-    tags: ['Synthwave', 'Cyberpunk', 'Electronic'],
+    settings: { shared_speakers: true },
   },
   {
     id: 'room-3',
     slug: 'deep-house-sessions',
     name: 'Deep House & Melodic Techno',
     description: 'Smooth weekend sunset vibes curated live with open shared speakers.',
-    privacy: 'public',
+    privacy: 'public' as const,
     current_song: 'RÜFÜS DU SOL - Innerbloom',
     duration: '09:38',
-    host: 'Elena',
     members_count: 31,
-    shared_speakers: false,
-    tags: ['Deep House', 'Techno', 'Party'],
+    settings: { shared_speakers: false },
   },
   {
     id: 'room-4',
     slug: 'indie-rock-favorites',
     name: 'Indie Rock & Bedroom Pop',
     description: 'Community collaborative queue: add your favorite underground gems.',
-    privacy: 'password',
+    privacy: 'password' as const,
     current_song: 'Tame Impala - The Less I Know The Better',
     duration: '03:36',
-    host: 'Jordan',
     members_count: 12,
-    shared_speakers: true,
-    tags: ['Indie', 'Alternative', 'Rock'],
-  },
-  {
-    id: 'room-5',
-    slug: 'tokyo-city-pop',
-    name: '80s Tokyo City Pop & Funk',
-    description: 'Nostalgic Japanese funk, disco grooves, and city pop vinyl records.',
-    privacy: 'public',
-    current_song: 'Mariya Takeuchi - Plastic Love',
-    duration: '04:52',
-    host: 'Kenji',
-    members_count: 42,
-    shared_speakers: false,
-    tags: ['City Pop', 'Disco', 'Vinyl'],
+    settings: { shared_speakers: true },
   },
 ];
 
@@ -90,15 +69,19 @@ export function ExplorePage() {
   const [filterPrivacy, setFilterPrivacy] = useState<'all' | 'public' | 'password'>('all');
   const setCreateRoomOpen = useUiStore((s) => s.setCreateRoomOpen);
 
-  const filteredRooms = MOCK_EXPLORE_ROOMS.filter((room) => {
+  // Live remote query
+  const { data: remoteRooms, isLoading } = useExploreRooms(searchQuery);
+
+  // Combine remote with demo fallback if table is newly seeded
+  const activeRooms = remoteRooms && remoteRooms.length > 0 ? remoteRooms : DEMO_ROOMS;
+
+  const filteredRooms = activeRooms.filter((room) => {
     const matchesSearch =
       room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      room.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      room.current_song.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      room.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+      (room.description && room.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      room.slug.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesPrivacy = filterPrivacy === 'all' || room.privacy === filterPrivacy;
-
     return matchesSearch && matchesPrivacy;
   });
 
@@ -160,7 +143,7 @@ export function ExplorePage() {
         <div className="relative flex-1 w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
-            placeholder="Search by room title, track name, host, or tag..."
+            placeholder="Search by room title, track name, host, or slug..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9 h-8 bg-surface border-border text-xs rounded-md"
@@ -201,14 +184,19 @@ export function ExplorePage() {
         </div>
       </div>
 
+      {isLoading && (
+        <div className="py-12 text-center text-xs text-muted-foreground font-mono">
+          Loading live directory...
+        </div>
+      )}
+
       {/* Table View (Information-Dense Default) */}
-      {viewMode === 'table' ? (
+      {!isLoading && viewMode === 'table' ? (
         <div className="border border-border rounded-md overflow-hidden bg-surface">
           <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[11px] font-semibold text-muted-foreground border-b border-border bg-muted/40 uppercase tracking-wider">
-            <div className="col-span-5 md:col-span-4">Room & Tags</div>
-            <div className="col-span-4 md:col-span-4">Now Playing</div>
-            <div className="hidden md:block col-span-2 text-center">Listeners</div>
-            <div className="col-span-3 md:col-span-2 text-right">Action</div>
+            <div className="col-span-6 md:col-span-5">Room / Slug</div>
+            <div className="col-span-4 md:col-span-5">Status & Mode</div>
+            <div className="col-span-2 text-right">Action</div>
           </div>
 
           <div className="divide-y divide-border/60">
@@ -217,9 +205,9 @@ export function ExplorePage() {
                 key={room.id}
                 className="grid grid-cols-12 gap-2 px-3 py-3 items-center hover:bg-surface-hover transition-colors text-xs"
               >
-                {/* Room Title, Privacy & Tags */}
-                <div className="col-span-5 md:col-span-4 min-w-0">
-                  <div className="flex items-center gap-1.5 mb-1">
+                {/* Room Title, Privacy & Slug */}
+                <div className="col-span-6 md:col-span-5 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-0.5">
                     {room.privacy === 'password' ? (
                       <span title="Password Protected">
                         <Lock className="h-3 w-3 text-amber-400 shrink-0" />
@@ -236,41 +224,26 @@ export function ExplorePage() {
                       {room.name}
                     </Link>
                   </div>
-                  <div className="flex flex-wrap items-center gap-1">
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      Host: {room.host}
-                    </span>
-                    {room.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-[9px] px-1 py-0.2 rounded bg-muted text-muted-foreground font-mono"
-                      >
-                        #{tag}
-                      </span>
-                    ))}
+                  <div className="text-[10px] text-muted-foreground font-mono truncate">
+                    /{room.slug}
                   </div>
                 </div>
 
-                {/* Now Playing */}
-                <div className="col-span-4 md:col-span-4 min-w-0">
+                {/* Status & Mode */}
+                <div className="col-span-4 md:col-span-5 min-w-0">
                   <div className="flex items-center gap-1.5 text-foreground truncate">
                     <Volume2 className="h-3 w-3 text-primary shrink-0 animate-pulse" />
-                    <span className="truncate">{room.current_song}</span>
+                    <span className="truncate text-[11px]">
+                      {(room as any).current_song || 'Ready for playback'}
+                    </span>
                   </div>
-                  <span className="text-[11px] font-mono text-muted-foreground">
-                    {room.duration} • {room.shared_speakers ? 'Party Mode' : 'DJ Mode'}
+                  <span className="text-[10px] font-mono text-muted-foreground">
+                    {room.settings?.shared_speakers ? 'Party Mode (Open DJ)' : 'Host Mode (Curated)'}
                   </span>
                 </div>
 
-                {/* Active Listeners */}
-                <div className="hidden md:flex col-span-2 items-center justify-center gap-1.5 font-mono text-xs">
-                  <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>{room.members_count}</span>
-                </div>
-
                 {/* Action */}
-                <div className="col-span-3 md:col-span-2 flex justify-end">
+                <div className="col-span-2 flex justify-end">
                   <Link to={`/rooms/${room.slug}`}>
                     <Button size="sm" variant="outline" className="h-7 px-3 text-xs font-medium">
                       Join
@@ -281,13 +254,13 @@ export function ExplorePage() {
             ))}
           </div>
         </div>
-      ) : (
+      ) : !isLoading ? (
         /* Compact Grid View */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filteredRooms.map((room) => (
             <div
               key={room.id}
-              className="ui-panel p-3.5 rounded-md flex flex-col justify-between hover:border-primary/50 transition-colors"
+              className="ui-panel p-3.5 rounded-md flex flex-col justify-between hover:border-muted-foreground/30 transition-colors"
             >
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -296,7 +269,7 @@ export function ExplorePage() {
                   </Badge>
                   <div className="flex items-center gap-1 text-[11px] font-mono text-emerald-400">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    <span>{room.members_count} online</span>
+                    <span>Live</span>
                   </div>
                 </div>
 
@@ -307,17 +280,14 @@ export function ExplorePage() {
                   {room.name}
                 </Link>
                 <p className="text-[11px] text-muted-foreground line-clamp-2 mb-3 leading-relaxed">
-                  {room.description}
+                  {room.description || 'Synchronized collaborative listening room.'}
                 </p>
               </div>
 
               <div className="pt-2 border-t border-border/60 flex items-center justify-between">
-                <div className="min-w-0 pr-2">
-                  <div className="flex items-center gap-1 text-xs text-foreground truncate">
-                    <Volume2 className="h-3 w-3 text-primary shrink-0" />
-                    <span className="truncate text-[11px]">{room.current_song}</span>
-                  </div>
-                </div>
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  {room.settings?.shared_speakers ? 'Party Mode' : 'Host Mode'}
+                </span>
                 <Link to={`/rooms/${room.slug}`} className="shrink-0">
                   <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs">
                     Join
@@ -327,7 +297,7 @@ export function ExplorePage() {
             </div>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

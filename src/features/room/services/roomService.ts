@@ -1,0 +1,218 @@
+import { supabase, isSupabaseConfigured } from '@/services/supabaseClient';
+import type { Room, RoomPrivacy, RoomSettings } from '@/types/database.types';
+
+const LOCAL_ROOMS_KEY = 'jamroom_local_rooms';
+
+export interface CreateRoomInput {
+  name: string;
+  slug: string;
+  description?: string;
+  privacy: RoomPrivacy;
+  password?: string;
+  settings?: Partial<RoomSettings>;
+}
+
+export interface CreateRoomResult {
+  room: Room;
+  recoveryToken: string;
+}
+
+export interface JoinRoomResult {
+  success: boolean;
+  role: 'owner' | 'moderator' | 'member';
+  room: Room;
+}
+
+/**
+ * Creates a virtual listening room atomically.
+ */
+export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResult> {
+  const sanitizedSlug = input.slug
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .slice(0, 40);
+
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase.rpc('rpc_create_room', {
+      p_name: input.name.trim(),
+      p_slug: sanitizedSlug,
+      p_description: input.description?.trim() || null,
+      p_privacy: input.privacy,
+      p_password: input.password?.trim() || null,
+      p_settings: input.settings || {},
+    });
+
+    if (error) throw error;
+    return {
+      room: data.room as Room,
+      recoveryToken: data.recovery_token,
+    };
+  }
+
+  // Local Offline Fallback
+  return createLocalRoom(input, sanitizedSlug);
+}
+
+/**
+ * Fetches an active room by its unique URL slug.
+ */
+export async function getRoomBySlug(slug: string): Promise<Room | null> {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from('rooms')
+      .select('*')
+      .eq('slug', slug)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if (error) {
+      console.warn('[getRoomBySlug] Supabase query error:', error);
+    }
+    if (data) return data as Room;
+  }
+
+  // Check local offline storage
+  const localRooms = getLocalRooms();
+  return localRooms.find((r) => r.slug === slug && r.status === 'active') || null;
+}
+
+/**
+ * Fetches all public active rooms for the Explore lobby.
+ */
+export async function getPublicRooms(searchQuery?: string): Promise<Room[]> {
+  if (isSupabaseConfigured) {
+    let query = supabase
+      .from('rooms')
+      .select('*')
+      .eq('status', 'active')
+      .eq('privacy', 'public')
+      .order('created_at', { ascending: false });
+
+    if (searchQuery && searchQuery.trim()) {
+      query = query.ilike('name', `%${searchQuery.trim()}%`);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.warn('[getPublicRooms] Supabase query error:', error);
+    }
+    if (data && data.length > 0) return data as Room[];
+  }
+
+  // Local fallback
+  const localRooms = getLocalRooms().filter((r) => r.status === 'active' && r.privacy === 'public');
+  if (searchQuery && searchQuery.trim()) {
+    const q = searchQuery.toLowerCase();
+    return localRooms.filter((r) => r.name.toLowerCase().includes(q) || r.slug.includes(q));
+  }
+  return localRooms;
+}
+
+/**
+ * Enrolls a guest into a room, validating passcodes if protected.
+ */
+export async function joinRoom(roomId: string, passcode?: string): Promise<JoinRoomResult> {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase.rpc('rpc_join_room', {
+      p_room_id: roomId,
+      p_passcode: passcode?.trim() || null,
+    });
+
+    if (error) throw error;
+    return {
+      success: true,
+      role: data.role,
+      room: data.room as Room,
+    };
+  }
+
+  // Offline mode join
+  const localRooms = getLocalRooms();
+  const room = localRooms.find((r) => r.id === roomId);
+  if (!room) throw new Error('Room not found');
+
+  return {
+    success: true,
+    role: 'member',
+    room,
+  };
+}
+
+/**
+ * Claims host room ownership using an Emergency Recovery Token.
+ */
+export async function claimRoomOwnership(roomId: string, recoveryToken: string): Promise<{ success: boolean; newRecoveryToken: string }> {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase.rpc('rpc_claim_room_ownership', {
+      p_room_id: roomId,
+      p_recovery_token: recoveryToken.trim(),
+    });
+
+    if (error) throw error;
+    return {
+      success: true,
+      newRecoveryToken: data.new_recovery_token,
+    };
+  }
+
+  return { success: true, newRecoveryToken: 'jam-local-rotated' };
+}
+
+/**
+ * Heartbeat activity ping for skip vote denominator accuracy.
+ */
+export async function touchMemberActivity(roomId: string): Promise<void> {
+  if (isSupabaseConfigured) {
+    await supabase.rpc('rpc_touch_member_activity', { p_room_id: roomId });
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Local Storage Offline Helpers
+// ----------------------------------------------------------------------------
+function getLocalRooms(): Room[] {
+  try {
+    const stored = localStorage.getItem(LOCAL_ROOMS_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function createLocalRoom(input: CreateRoomInput, slug: string): CreateRoomResult {
+  const localRooms = getLocalRooms();
+  const newRoom: Room = {
+    id: crypto.randomUUID(),
+    slug,
+    name: input.name.trim(),
+    description: input.description?.trim() || null,
+    cover_url: null,
+    privacy: input.privacy,
+    owner_id: 'local-owner',
+    status: 'active',
+    max_members: 50,
+    settings: {
+      shared_speakers: input.settings?.shared_speakers ?? false,
+      add_to_queue_permission: 'anyone',
+      reorder_queue_permission: 'host_and_mods_only',
+      vote_skip_enabled: true,
+      skip_vote_threshold_percent: 50,
+      max_queue_items_per_user: 5,
+      chat_enabled: true,
+      auto_play_on_queue_add: true,
+      ...input.settings,
+    },
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  localRooms.unshift(newRoom);
+  localStorage.setItem(LOCAL_ROOMS_KEY, JSON.stringify(localRooms));
+
+  const recoveryToken = `jam-${crypto.randomUUID().slice(0, 8)}`;
+  return {
+    room: newRoom,
+    recoveryToken,
+  };
+}

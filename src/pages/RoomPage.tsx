@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   Play,
   Pause,
@@ -15,42 +15,136 @@ import {
   Plus,
   Flame,
   Volume1,
+  KeyRound,
+  Check,
+  Radio,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
+import { useRoom } from '@/features/room/hooks/useRoom';
+import { PasscodeModal } from '@/components/room/PasscodeModal';
+import { RoomRecoveryModal } from '@/components/room/RoomRecoveryModal';
 
 export function RoomPage() {
   const { slugOrId } = useParams();
+  const navigate = useNavigate();
+
+  // Phase 3 Room Hook
+  const {
+    room,
+    isLoading,
+    isHost,
+    userRole,
+    isPasscodeRequired,
+    passcodeError,
+    submitPasscode,
+    claimOwnership,
+  } = useRoom(slugOrId);
+
   const [isPlaying, setIsPlaying] = useState(true);
   const [volume, setVolume] = useState(80);
   const [isMuted, setIsMuted] = useState(false);
   const [activeTab, setActiveTab] = useState<'player' | 'queue' | 'chat' | 'members'>('player');
+  const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const handleShare = () => {
+    navigator.clipboard.writeText(window.location.href);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex h-[calc(100vh-3.25rem)] items-center justify-center bg-background text-xs font-mono text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <span className="flex h-2 w-2 rounded-full bg-primary animate-pulse" />
+          <span>Synchronizing lounge state...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!room) {
+    return (
+      <div className="flex h-[calc(100vh-3.25rem)] flex-col items-center justify-center bg-background p-4 text-center">
+        <Radio className="h-8 w-8 text-muted-foreground mb-3 opacity-60" />
+        <h2 className="text-base font-bold text-foreground mb-1">Lounge Not Found</h2>
+        <p className="text-xs text-muted-foreground max-w-sm mb-4">
+          The room "{slugOrId}" does not exist, has ended, or was archived.
+        </p>
+        <Link to="/explore">
+          <Button size="sm" variant="default" className="text-xs">
+            Browse Live Directory
+          </Button>
+        </Link>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-[calc(100vh-3.25rem)] flex-col bg-background overflow-hidden">
+    <div className="flex h-[calc(100vh-3.25rem)] flex-col bg-background overflow-hidden relative">
+      {/* Passcode Modal Overlay */}
+      {isPasscodeRequired && (
+        <PasscodeModal
+          isOpen={isPasscodeRequired}
+          roomName={room.name}
+          error={passcodeError}
+          onSubmit={submitPasscode}
+          onCancel={() => navigate('/explore')}
+        />
+      )}
+
+      {/* Room Host Recovery Modal */}
+      <RoomRecoveryModal
+        isOpen={isRecoveryOpen}
+        roomName={room.name}
+        onClaim={claimOwnership}
+        onClose={() => setIsRecoveryOpen(false)}
+      />
+
       {/* Studio Stage Top Bar */}
       <div className="h-10 border-b border-border bg-surface/50 px-4 flex items-center justify-between text-xs shrink-0">
         <div className="flex items-center gap-2.5 truncate">
           <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
           <span className="font-semibold text-foreground text-xs uppercase tracking-wider truncate">
-            {slugOrId ? slugOrId.replace(/-/g, ' ') : 'LO-FI STUDY LOUNGE'}
+            {room.name}
           </span>
           <span className="text-muted-foreground hidden sm:inline">•</span>
-          <Badge variant="outline" className="text-[10px] hidden sm:inline-flex py-0 px-1.5 font-mono">
-            HOST DJ MODE
+          <Badge variant={isHost ? 'default' : 'outline'} className="text-[10px] hidden sm:inline-flex py-0 px-1.5 font-mono">
+            {isHost ? 'YOU ARE HOST' : userRole === 'moderator' ? 'MODERATOR' : 'LISTENER'}
           </Badge>
           <span className="text-[11px] font-mono text-muted-foreground hidden md:inline">
-            DRIFT: &lt;0.05s (SYNCED)
+            {room.settings?.shared_speakers ? 'PARTY MODE (SHARED SPEAKERS)' : 'DJ MODE (HOST ONLY)'}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-6 gap-1 text-[11px] px-2 font-medium">
-            <Share2 className="h-3 w-3" />
-            <span>Invite</span>
+          {!isHost && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsRecoveryOpen(true)}
+              className="h-6 gap-1 text-[11px] px-2 text-muted-foreground hover:text-foreground font-mono"
+              title="Claim host control with emergency recovery key"
+            >
+              <KeyRound className="h-3 w-3" />
+              <span className="hidden md:inline">Claim Host</span>
+            </Button>
+          )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleShare}
+            className="h-6 gap-1 text-[11px] px-2 font-medium"
+          >
+            {copiedLink ? <Check className="h-3 w-3 text-emerald-400" /> : <Share2 className="h-3 w-3" />}
+            <span>{copiedLink ? 'Copied' : 'Invite'}</span>
           </Button>
+
           <Button variant="ghost" size="icon-sm" className="h-6 w-6">
             <Settings className="h-3 w-3" />
           </Button>
@@ -131,7 +225,7 @@ export function RoomPage() {
                 Daft Punk — One More Time
               </h2>
               <p className="text-xs text-muted-foreground font-mono mb-4">
-                Master Audio: YouTube IFrame Engine • 12 Active Devices
+                Master Audio: YouTube IFrame Engine • {room.max_members} Cap
               </p>
               <Button size="sm" variant="default" className="gap-1.5 text-xs h-8 px-4 font-semibold">
                 <Volume1 className="h-3.5 w-3.5" />
@@ -220,34 +314,24 @@ export function RoomPage() {
             </div>
             <div className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
               <Users className="h-3 w-3" />
-              <span>12</span>
+              <span>Online</span>
             </div>
           </div>
 
           {/* Chat Stream */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2 text-xs">
             <div className="text-center my-1 text-[10px] text-muted-foreground font-mono">
-              Session started • Master clock synchronized
+              Session live • Master clock synchronized
             </div>
 
             <div className="space-y-0.5">
               <div className="flex items-center gap-1.5 text-[11px]">
-                <span className="font-semibold text-primary">DJ Alex</span>
+                <span className="font-semibold text-primary">{isHost ? 'You (Host)' : 'Host'}</span>
                 <Badge variant="default" className="text-[8px] px-1 py-0">HOST</Badge>
-                <span className="text-[10px] font-mono text-muted-foreground ml-auto">14:02</span>
+                <span className="text-[10px] font-mono text-muted-foreground ml-auto">now</span>
               </div>
               <p className="text-foreground text-xs bg-surface p-2 rounded border border-border">
-                Welcome everyone! Queue is open for additions.
-              </p>
-            </div>
-
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1.5 text-[11px]">
-                <span className="font-semibold text-foreground">Sarah</span>
-                <span className="text-[10px] font-mono text-muted-foreground ml-auto">14:05</span>
-              </div>
-              <p className="text-foreground text-xs bg-surface p-2 rounded border border-border">
-                Sounding crystal clear on my headphones 👍
+                Welcome to {room.name}! Audio is synchronized with all listeners.
               </p>
             </div>
           </div>
@@ -301,7 +385,7 @@ export function RoomPage() {
           }`}
         >
           <Users className="h-3.5 w-3.5 mb-0.5" />
-          <span>Users (12)</span>
+          <span>Users</span>
         </button>
       </nav>
     </div>
