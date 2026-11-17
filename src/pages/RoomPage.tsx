@@ -17,6 +17,10 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useRoom } from '@/features/room/hooks/useRoom';
 import { useRoomQueue } from '@/features/room/hooks/useRoomQueue';
+import { useLiveChat } from '@/features/social/hooks/useLiveChat';
+import { useRoomPresence } from '@/features/social/hooks/useRoomPresence';
+import { useFloatingReactions } from '@/features/social/hooks/useFloatingReactions';
+import { FloatingReactions } from '@/features/social/components/FloatingReactions';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { PasscodeModal } from '@/components/room/PasscodeModal';
 import { RoomRecoveryModal } from '@/components/room/RoomRecoveryModal';
@@ -30,7 +34,7 @@ import type { Room } from '@/types/database.types';
 export function RoomPage() {
   const { slugOrId } = useParams();
   const navigate = useNavigate();
-  const { user, profile } = useAuthStore();
+  const { user } = useAuthStore();
 
   // Phase 3 Room Hook
   const {
@@ -74,19 +78,19 @@ export function RoomPage() {
   const [copiedLink, setCopiedLink] = useState(false);
   const [activeRoomState, setActiveRoomState] = useState<Room | null>(null);
 
-  // Live Chat state
-  const [chatMessages, setChatMessages] = useState<Array<{ id: string; sender: string; text: string; time: string }>>([
-    {
-      id: 'welcome-msg',
-      sender: 'Jamroom System',
-      text: 'Synchronized audio stream initialized. All connected listeners hear the exact same timestamp.',
-      time: 'now',
-    },
-  ]);
-  const [chatInput, setChatInput] = useState('');
-
   // Handle local state update when room settings change
   const currentRoom = activeRoomState || room;
+
+  // Phase 8 Social: Real-Time Chat, Presence & Floating Reactions
+  const { messages: liveChatMessages, sendMessage: sendChatMessage, messagesEndRef } = useLiveChat(currentRoom?.id);
+  const { onlineCount } = useRoomPresence({
+    roomId: currentRoom?.id,
+    userRole,
+    isPlaying,
+  });
+  const { reactions, sendReaction } = useFloatingReactions(currentRoom?.id);
+
+  const [chatInput, setChatInput] = useState('');
 
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
@@ -94,21 +98,12 @@ export function RoomPage() {
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  const handleSendChat = (e: React.FormEvent) => {
+  const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = chatInput.trim();
     if (!trimmed) return;
-
-    setChatMessages((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        sender: profile?.display_name || 'You',
-        text: trimmed,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      },
-    ]);
     setChatInput('');
+    await sendChatMessage(trimmed);
   };
 
   if (isRoomLoading) {
@@ -205,6 +200,10 @@ export function RoomPage() {
           <span className="text-[11px] font-mono text-muted-foreground hidden md:inline">
             {isPartyMode ? 'PARTY MODE (SHARED SPEAKERS)' : 'DJ MODE (HOST ONLY)'}
           </span>
+          <span className="text-muted-foreground hidden lg:inline">•</span>
+          <Badge variant="outline" className="text-[10px] hidden lg:inline-flex py-0 px-1.5 font-mono">
+            {onlineCount} ONLINE
+          </Badge>
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2">
@@ -287,6 +286,12 @@ export function RoomPage() {
             onSeek={seek}
             onOpenSearch={() => setIsSearchOpen(true)}
           />
+          <div className="px-4 pb-2 flex justify-center">
+            <FloatingReactions
+              reactions={reactions}
+              onSendReaction={sendReaction}
+            />
+          </div>
         </section>
 
         {/* RIGHT COLUMN: Live Chat & Presence Roster */}
@@ -335,19 +340,39 @@ export function RoomPage() {
             <div className="flex-1 flex flex-col overflow-hidden">
               {/* Chat Stream */}
               <div className="flex-1 overflow-y-auto p-3 space-y-2 text-xs">
-                {chatMessages.map((msg) => (
-                  <div key={msg.id} className="space-y-0.5">
-                    <div className="flex items-center gap-1.5 text-[11px]">
-                      <span className="font-semibold text-primary">{msg.sender}</span>
-                      <span className="text-[10px] font-mono text-muted-foreground ml-auto">
-                        {msg.time}
-                      </span>
-                    </div>
-                    <p className="text-foreground text-xs bg-surface p-2 rounded border border-border leading-snug">
-                      {msg.text}
-                    </p>
+                {liveChatMessages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center text-xs text-muted-foreground p-4">
+                    <MessageSquare className="h-6 w-6 mb-2 opacity-30" />
+                    <p>No messages yet.</p>
+                    <p className="text-[10px] mt-0.5">Say hello to other listeners in this lounge!</p>
                   </div>
-                ))}
+                ) : (
+                  liveChatMessages.map((msg) => {
+                    const isSelf = user?.id && msg.user_id === user.id;
+                    const senderName = msg.profile?.display_name || (isSelf ? 'You' : 'Listener');
+                    const formattedTime = new Date(msg.created_at).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    });
+
+                    return (
+                      <div key={msg.id} className="space-y-0.5">
+                        <div className="flex items-center gap-1.5 text-[11px]">
+                          <span className={`font-semibold ${isSelf ? 'text-primary' : 'text-foreground'}`}>
+                            {senderName}
+                          </span>
+                          <span className="text-[10px] font-mono text-muted-foreground ml-auto">
+                            {formattedTime}
+                          </span>
+                        </div>
+                        <p className="text-foreground text-xs bg-surface p-2 rounded border border-border leading-snug">
+                          {msg.content}
+                        </p>
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={messagesEndRef} />
               </div>
 
               {/* Chat Input */}

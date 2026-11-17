@@ -71,3 +71,22 @@ body {
   background: hsl(var(--surface-hover));
   border-color: hsl(var(--muted-foreground) / 0.3);
 }
+
+@keyframes floatFade {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(0.85);
+  }
+  50% {
+    opacity: 0.95;
+    transform: translateY(-50px) scale(1.1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-110px) scale(0.9);
+  }
+}
+
+.animate-float-fade {
+  animation: floatFade 2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
