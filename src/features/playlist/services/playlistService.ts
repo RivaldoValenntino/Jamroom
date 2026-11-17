@@ -117,7 +117,136 @@ export async function fetchPlaylistItems(playlistId: string): Promise<PlaylistIt
     return (data || []) as PlaylistItem[];
   }
 
-  return [];
+  return getLocalPlaylistItems(playlistId);
+}
+
+export interface AddTrackToPlaylistInput {
+  playlistId: string;
+  youtubeId: string;
+  title: string;
+  artistChannel: string;
+  durationSeconds: number;
+  thumbnailUrl: string;
+}
+
+export async function addTrackToPlaylist(input: AddTrackToPlaylistInput): Promise<PlaylistItem> {
+  if (isSupabaseConfigured) {
+    try {
+      // 1. Try atomic RPC
+      const { data, error } = await supabase.rpc('rpc_add_playlist_item', {
+        p_playlist_id: input.playlistId,
+        p_youtube_id: input.youtubeId,
+        p_title: input.title,
+        p_artist_channel: input.artistChannel,
+        p_duration_seconds: input.durationSeconds,
+        p_thumbnail_url: input.thumbnailUrl,
+      });
+
+      if (!error && data) {
+        return data as PlaylistItem;
+      }
+
+      // 2. Direct fallback if RPC is not deployed yet
+      const { data: songData, error: songErr } = await supabase
+        .from('songs')
+        .upsert(
+          {
+            youtube_id: input.youtubeId,
+            title: input.title,
+            artist_channel: input.artistChannel,
+            duration_seconds: input.durationSeconds,
+            thumbnail_url: input.thumbnailUrl,
+          },
+          { onConflict: 'youtube_id' }
+        )
+        .select()
+        .single();
+
+      if (songErr) throw songErr;
+
+      // Get current max position
+      const { data: lastItem } = await supabase
+        .from('playlist_items')
+        .select('position')
+        .eq('playlist_id', input.playlistId)
+        .order('position', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const nextPos = (lastItem?.position || 0) + 1;
+
+      const { data: itemData, error: itemErr } = await supabase
+        .from('playlist_items')
+        .insert({
+          playlist_id: input.playlistId,
+          song_id: songData.id,
+          position: nextPos,
+        })
+        .select('*, song:songs(*)')
+        .single();
+
+      if (itemErr) throw itemErr;
+      return itemData as PlaylistItem;
+    } catch (err) {
+      console.warn('[addTrackToPlaylist] Supabase add warning, falling back to local storage:', err);
+    }
+  }
+
+  // Local fallback
+  return addLocalPlaylistItem(input);
+}
+
+export async function removePlaylistItem(playlistId: string, itemId: string): Promise<void> {
+  if (isSupabaseConfigured) {
+    try {
+      const { error: rpcErr } = await supabase.rpc('rpc_remove_playlist_item', {
+        p_playlist_id: playlistId,
+        p_playlist_item_id: itemId,
+      });
+      if (!rpcErr) return;
+    } catch {}
+
+    const { error } = await supabase
+      .from('playlist_items')
+      .delete()
+      .eq('id', itemId);
+
+    if (error) throw error;
+    return;
+  }
+
+  removeLocalPlaylistItem(playlistId, itemId);
+}
+
+export async function deletePlaylist(playlistId: string): Promise<void> {
+  if (isSupabaseConfigured) {
+    const { error } = await supabase
+      .from('playlists')
+      .delete()
+      .eq('id', playlistId);
+
+    if (error) throw error;
+    return;
+  }
+
+  deleteLocalPlaylist(playlistId);
+}
+
+export async function saveQueueToPlaylist(playlistId: string, roomId: string): Promise<number> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabase.rpc('rpc_save_queue_to_playlist', {
+        p_playlist_id: playlistId,
+        p_room_id: roomId,
+      });
+      if (!error && data) {
+        return data.added_count || 0;
+      }
+    } catch (err) {
+      console.warn('[saveQueueToPlaylist] Supabase warning:', err);
+    }
+  }
+  return 0;
 }
 
 export async function importPlaylistToRoom(roomId: string, playlistId: string): Promise<number> {
@@ -126,8 +255,31 @@ export async function importPlaylistToRoom(roomId: string, playlistId: string): 
       p_room_id: roomId,
       p_playlist_id: playlistId,
     });
-    if (error) throw error;
-    return data.imported_count || 0;
+    if (!error && data) return data.imported_count || 0;
+  }
+
+  // Local offline queue import
+  const items = getLocalPlaylistItems(playlistId);
+  if (items.length > 0) {
+    const localQueueRaw = localStorage.getItem(`jamroom_local_queue_${roomId}`);
+    const localQueue = localQueueRaw ? JSON.parse(localQueueRaw) : [];
+    let pos = localQueue.length * 1000;
+    for (const item of items) {
+      pos += 1000;
+      localQueue.push({
+        id: crypto.randomUUID(),
+        room_id: roomId,
+        song_id: item.song_id,
+        added_by: 'local-guest',
+        position: pos,
+        status: localQueue.length === 0 ? 'playing' : 'queued',
+        song: item.song,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    }
+    localStorage.setItem(`jamroom_local_queue_${roomId}`, JSON.stringify(localQueue));
+    return items.length;
   }
 
   return 0;
@@ -297,4 +449,68 @@ function getLocalPlaylists(): Playlist[] {
   } catch {
     return [];
   }
+}
+
+const LOCAL_ITEMS_KEY_PREFIX = 'jamroom_local_playlist_items_';
+
+function getLocalPlaylistItems(playlistId: string): PlaylistItem[] {
+  try {
+    const stored = localStorage.getItem(`${LOCAL_ITEMS_KEY_PREFIX}${playlistId}`);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function addLocalPlaylistItem(input: AddTrackToPlaylistInput): PlaylistItem {
+  const items = getLocalPlaylistItems(input.playlistId);
+  const song: Song = {
+    id: crypto.randomUUID(),
+    youtube_id: input.youtubeId,
+    title: input.title,
+    artist_channel: input.artistChannel,
+    duration_seconds: input.durationSeconds,
+    thumbnail_url: input.thumbnailUrl,
+    raw_metadata: {},
+    created_at: new Date().toISOString(),
+  };
+
+  const newItem: PlaylistItem = {
+    id: crypto.randomUUID(),
+    playlist_id: input.playlistId,
+    song_id: song.id,
+    position: items.length + 1,
+    song,
+  };
+
+  items.push(newItem);
+  localStorage.setItem(`${LOCAL_ITEMS_KEY_PREFIX}${input.playlistId}`, JSON.stringify(items));
+
+  // Update item count on local playlist
+  const pls = getLocalPlaylists();
+  const pl = pls.find((p) => p.id === input.playlistId);
+  if (pl) {
+    pl.item_count = items.length;
+    localStorage.setItem(LOCAL_PLAYLISTS_KEY, JSON.stringify(pls));
+  }
+
+  return newItem;
+}
+
+function removeLocalPlaylistItem(playlistId: string, itemId: string): void {
+  const items = getLocalPlaylistItems(playlistId).filter((i) => i.id !== itemId);
+  localStorage.setItem(`${LOCAL_ITEMS_KEY_PREFIX}${playlistId}`, JSON.stringify(items));
+
+  const pls = getLocalPlaylists();
+  const pl = pls.find((p) => p.id === playlistId);
+  if (pl) {
+    pl.item_count = items.length;
+    localStorage.setItem(LOCAL_PLAYLISTS_KEY, JSON.stringify(pls));
+  }
+}
+
+function deleteLocalPlaylist(playlistId: string): void {
+  const pls = getLocalPlaylists().filter((p) => p.id !== playlistId);
+  localStorage.setItem(LOCAL_PLAYLISTS_KEY, JSON.stringify(pls));
+  localStorage.removeItem(`${LOCAL_ITEMS_KEY_PREFIX}${playlistId}`);
 }

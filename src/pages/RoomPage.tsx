@@ -261,6 +261,7 @@ export function RoomPage() {
         onImportComplete={() => {
           setIsPlaylistOpen(false);
         }}
+        onAddSong={addSong}
       />
 
       {/* Room Playback History Modal */}

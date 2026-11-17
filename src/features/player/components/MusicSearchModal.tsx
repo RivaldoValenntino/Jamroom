@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Link as LinkIcon, Plus, Loader2, Music, AlertCircle, Check } from 'lucide-react';
+import { Search, Link as LinkIcon, Plus, Loader2, Music, AlertCircle, Check, FolderPlus } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -11,11 +11,24 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import {
   searchYouTube,
   fetchVideoDetails,
   extractYouTubeId,
   YouTubeSearchResult,
 } from '../services/youtubeService';
+import {
+  fetchUserPlaylists,
+  addTrackToPlaylist,
+  Playlist,
+} from '@/features/playlist/services/playlistService';
 
 interface MusicSearchModalProps {
   isOpen: boolean;
@@ -36,6 +49,10 @@ export function MusicSearchModal({ isOpen, onClose, onAddSong }: MusicSearchModa
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
+  // Playlists cache for bookmarking
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+
   // Direct paste state
   const [directInput, setDirectInput] = useState('');
   const [directPreview, setDirectPreview] = useState<YouTubeSearchResult | null>(null);
@@ -45,6 +62,31 @@ export function MusicSearchModal({ isOpen, onClose, onAddSong }: MusicSearchModa
   // Adding track state
   const [addingId, setAddingId] = useState<string | null>(null);
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
+
+  // Load playlists whenever modal opens
+  useEffect(() => {
+    if (isOpen) {
+      fetchUserPlaylists().then((pls) => setPlaylists(pls)).catch(() => {});
+    }
+  }, [isOpen]);
+
+  const handleSaveToPlaylist = async (playlistId: string, item: YouTubeSearchResult) => {
+    try {
+      await addTrackToPlaylist({
+        playlistId,
+        youtubeId: item.id,
+        title: item.title,
+        artistChannel: item.channelTitle || 'YouTube Audio',
+        durationSeconds: item.durationSeconds || 0,
+        thumbnailUrl: item.thumbnailUrl || '',
+      });
+      const targetPl = playlists.find((p) => p.id === playlistId);
+      setSavedMsg(`Saved to playlist "${targetPl?.name || 'Collection'}"`);
+      setTimeout(() => setSavedMsg(null), 2500);
+    } catch (err: any) {
+      alert(err.message || 'Failed to save track to playlist');
+    }
+  };
 
   // Debounced search effect
   useEffect(() => {
@@ -207,6 +249,13 @@ export function MusicSearchModal({ isOpen, onClose, onAddSong }: MusicSearchModa
 
         {/* Content Body */}
         <div className="p-4 flex-1 overflow-y-auto min-h-[300px] flex flex-col gap-3">
+          {savedMsg && (
+            <div className="p-2 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-1.5 animate-in fade-in">
+              <Check className="h-3.5 w-3.5 shrink-0" />
+              <span>{savedMsg}</span>
+            </div>
+          )}
+
           {activeTab === 'search' ? (
             <>
               {/* Search Input */}
@@ -300,28 +349,67 @@ export function MusicSearchModal({ isOpen, onClose, onAddSong }: MusicSearchModa
                           <p className="text-[11px] text-muted-foreground truncate">{item.channelTitle}</p>
                         </div>
 
-                        {/* Add Button */}
-                        <Button
-                          size="sm"
-                          variant={isAdded ? 'outline' : 'default'}
-                          onClick={() => handleQueueTrack(item)}
-                          disabled={isAdding || isAdded}
-                          className="h-7 px-2.5 text-xs gap-1 shrink-0 font-medium"
-                        >
-                          {isAdding ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : isAdded ? (
-                            <>
-                              <Check className="h-3 w-3 text-emerald-400" />
-                              <span className="text-emerald-400">Added</span>
-                            </>
-                          ) : (
-                            <>
-                              <Plus className="h-3 w-3" />
-                              <span>Queue</span>
-                            </>
-                          )}
-                        </Button>
+                        {/* Actions: Add to Queue & Save to Playlist */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                                title="Save to Playlist"
+                              >
+                                <FolderPlus className="h-3.5 w-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48 bg-surface border-border text-xs">
+                              <DropdownMenuLabel className="text-[10px] uppercase font-mono text-muted-foreground">
+                                Save to Playlist
+                              </DropdownMenuLabel>
+                              <DropdownMenuSeparator className="bg-border" />
+                              {playlists.length === 0 ? (
+                                <div className="p-2 text-[11px] text-muted-foreground text-center">
+                                  No playlists found
+                                </div>
+                              ) : (
+                                playlists.map((pl) => (
+                                  <DropdownMenuItem
+                                    key={pl.id}
+                                    onClick={() => handleSaveToPlaylist(pl.id, item)}
+                                    className="cursor-pointer flex items-center justify-between text-xs"
+                                  >
+                                    <span className="truncate">{pl.name}</span>
+                                    <Badge variant="outline" className="text-[9px] font-mono py-0 px-1 ml-1 shrink-0">
+                                      {pl.item_count || 0}
+                                    </Badge>
+                                  </DropdownMenuItem>
+                                ))
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+
+                          <Button
+                            size="sm"
+                            variant={isAdded ? 'outline' : 'default'}
+                            onClick={() => handleQueueTrack(item)}
+                            disabled={isAdding || isAdded}
+                            className="h-7 px-2.5 text-xs gap-1 font-medium"
+                          >
+                            {isAdding ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : isAdded ? (
+                              <>
+                                <Check className="h-3 w-3 text-emerald-400" />
+                                <span className="text-emerald-400">Added</span>
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="h-3 w-3" />
+                                <span>Queue</span>
+                              </>
+                            )}
+                          </Button>
+                        </div>
                       </div>
                     );
                   })
@@ -386,27 +474,66 @@ export function MusicSearchModal({ isOpen, onClose, onAddSong }: MusicSearchModa
                     <p className="text-[11px] text-muted-foreground truncate">{directPreview.channelTitle}</p>
                   </div>
 
-                  <Button
-                    size="sm"
-                    variant={addedIds.has(directPreview.id) ? 'outline' : 'default'}
-                    onClick={() => handleQueueTrack(directPreview)}
-                    disabled={addingId === directPreview.id || addedIds.has(directPreview.id)}
-                    className="h-8 px-3 text-xs gap-1.5 shrink-0 font-medium"
-                  >
-                    {addingId === directPreview.id ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : addedIds.has(directPreview.id) ? (
-                      <>
-                        <Check className="h-3 w-3 text-emerald-400" />
-                        <span className="text-emerald-400">Enqueued</span>
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="h-3 w-3" />
-                        <span>Enqueue Track</span>
-                      </>
-                    )}
-                  </Button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                          title="Save to Playlist"
+                        >
+                          <FolderPlus className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48 bg-surface border-border text-xs">
+                        <DropdownMenuLabel className="text-[10px] uppercase font-mono text-muted-foreground">
+                          Save to Playlist
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator className="bg-border" />
+                        {playlists.length === 0 ? (
+                          <div className="p-2 text-[11px] text-muted-foreground text-center">
+                            No playlists found
+                          </div>
+                        ) : (
+                          playlists.map((pl) => (
+                            <DropdownMenuItem
+                              key={pl.id}
+                              onClick={() => handleSaveToPlaylist(pl.id, directPreview)}
+                              className="cursor-pointer flex items-center justify-between text-xs"
+                            >
+                              <span className="truncate">{pl.name}</span>
+                              <Badge variant="outline" className="text-[9px] font-mono py-0 px-1 ml-1 shrink-0">
+                                {pl.item_count || 0}
+                              </Badge>
+                            </DropdownMenuItem>
+                          ))
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+
+                    <Button
+                      size="sm"
+                      variant={addedIds.has(directPreview.id) ? 'outline' : 'default'}
+                      onClick={() => handleQueueTrack(directPreview)}
+                      disabled={addingId === directPreview.id || addedIds.has(directPreview.id)}
+                      className="h-8 px-3 text-xs gap-1.5 font-medium"
+                    >
+                      {addingId === directPreview.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : addedIds.has(directPreview.id) ? (
+                        <>
+                          <Check className="h-3 w-3 text-emerald-400" />
+                          <span className="text-emerald-400">Enqueued</span>
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="h-3 w-3" />
+                          <span>Enqueue Track</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
               )}
 
