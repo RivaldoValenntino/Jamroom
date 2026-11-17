@@ -35,6 +35,25 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
 
   if (isSupabaseConfigured) {
     try {
+      // 1. Ensure Supabase auth session is active for auth.uid()
+      let { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        try {
+          const { data: anonData } = await supabase.auth.signInAnonymously();
+          if (anonData?.session) {
+            session = anonData.session;
+          }
+        } catch {
+          // Anonymous sign-ins might be disabled on Supabase project
+        }
+      }
+
+      // If still no Supabase auth session, fall back to local room creation
+      if (!session) {
+        console.warn('[createRoom] No Supabase auth session active. Creating lounge in local storage.');
+        return createLocalRoom(input, sanitizedSlug);
+      }
+
       const { data, error } = await supabase.rpc('rpc_create_room', {
         p_name: input.name.trim(),
         p_slug: sanitizedSlug,
@@ -52,14 +71,24 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
       }
 
       console.warn('[createRoom] RPC error, falling back to local room:', error);
-      // If function is not in schema cache (migration not run yet), fall back to local storage
-      if (error?.code === 'PGRST202' || error?.message?.includes('schema cache') || error?.message?.includes('function')) {
+      // Fall back if RPC not in schema cache or if authentication required
+      if (
+        error?.code === 'PGRST202' ||
+        error?.message?.includes('schema cache') ||
+        error?.message?.includes('function') ||
+        error?.message?.includes('Authentication required')
+      ) {
         return createLocalRoom(input, sanitizedSlug);
       }
 
       throw error;
     } catch (err: any) {
-      if (err?.code === 'PGRST202' || err?.message?.includes('schema cache') || err?.message?.includes('function')) {
+      if (
+        err?.code === 'PGRST202' ||
+        err?.message?.includes('schema cache') ||
+        err?.message?.includes('function') ||
+        err?.message?.includes('Authentication required')
+      ) {
         return createLocalRoom(input, sanitizedSlug);
       }
       throw err;
@@ -144,11 +173,21 @@ export async function joinRoom(roomId: string, passcode?: string): Promise<JoinR
         };
       }
 
-      if (error?.code !== 'PGRST202' && !error?.message?.includes('schema cache') && !error?.message?.includes('function')) {
+      if (
+        error?.code !== 'PGRST202' &&
+        !error?.message?.includes('schema cache') &&
+        !error?.message?.includes('function') &&
+        !error?.message?.includes('Authentication required')
+      ) {
         throw error;
       }
     } catch (err: any) {
-      if (err?.code !== 'PGRST202' && !err?.message?.includes('schema cache') && !err?.message?.includes('function')) {
+      if (
+        err?.code !== 'PGRST202' &&
+        !err?.message?.includes('schema cache') &&
+        !err?.message?.includes('function') &&
+        !err?.message?.includes('Authentication required')
+      ) {
         throw err;
       }
     }

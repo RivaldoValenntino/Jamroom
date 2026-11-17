@@ -88,11 +88,19 @@ export async function addTrackToQueue(
       });
 
       if (!error) return;
-      if (error.code !== 'PGRST202' && !error.message?.includes('schema cache')) {
+      if (
+        error.code !== 'PGRST202' &&
+        !error.message?.includes('schema cache') &&
+        !error.message?.includes('Authentication required')
+      ) {
         throw error;
       }
     } catch (err: any) {
-      if (err?.code !== 'PGRST202' && !err?.message?.includes('schema cache')) {
+      if (
+        err?.code !== 'PGRST202' &&
+        !err?.message?.includes('schema cache') &&
+        !err?.message?.includes('Authentication required')
+      ) {
         throw err;
       }
     }
