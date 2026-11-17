@@ -323,6 +323,73 @@ export async function reorderQueueItem(
 }
 
 /**
+ * Immediately switches playback to a specific queued track ("Play Now / Play Immediately").
+ */
+export async function playTrackNow(roomId: string, queueItemId: string): Promise<void> {
+  if (isSupabaseConfigured) {
+    // 1. Mark currently playing item as played
+    await supabase
+      .from('queue_items')
+      .update({ status: 'played' })
+      .eq('room_id', roomId)
+      .eq('status', 'playing');
+
+    // 2. Mark target item as playing
+    const { data: item, error: itemErr } = await supabase
+      .from('queue_items')
+      .update({ status: 'playing', updated_at: new Date().toISOString() })
+      .eq('id', queueItemId)
+      .select('*, song:songs(*)')
+      .single();
+
+    if (itemErr) throw itemErr;
+
+    // 3. Update authoritative playback state
+    if (item) {
+      const { error: pbErr } = await supabase
+        .from('playback_states')
+        .upsert({
+          room_id: roomId,
+          current_queue_item_id: item.id,
+          current_song_id: item.song_id,
+          is_playing: true,
+          position_seconds: 0,
+          server_updated_at: new Date().toISOString(),
+          playback_version: Date.now(),
+          updated_at: new Date().toISOString(),
+        });
+      if (pbErr) throw pbErr;
+    }
+    return;
+  }
+
+  // Local Storage Fallback
+  const queue = getLocalQueue(roomId);
+  const currentItem = queue.find((i) => i.status === 'playing');
+  if (currentItem) {
+    currentItem.status = 'played';
+  }
+
+  const targetItem = queue.find((i) => i.id === queueItemId);
+  if (targetItem) {
+    targetItem.status = 'playing';
+    setLocalQueue(roomId, queue);
+    setLocalPlayback(roomId, {
+      room_id: roomId,
+      current_queue_item_id: targetItem.id,
+      current_song_id: targetItem.song_id,
+      is_playing: true,
+      position_seconds: 0,
+      server_updated_at: new Date().toISOString(),
+      playback_version: Date.now(),
+      updated_by: 'host',
+      updated_at: new Date().toISOString(),
+      current_song: targetItem.song,
+    });
+  }
+}
+
+/**
  * Calculates midpoint fractional position for reordering between adjacent items.
  */
 export function calculateFractionalPosition(

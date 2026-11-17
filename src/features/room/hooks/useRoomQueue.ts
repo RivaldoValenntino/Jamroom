@@ -10,6 +10,8 @@ import {
   updatePlayback,
   castSkipVote,
   reorderQueueItem,
+  calculateFractionalPosition,
+  playTrackNow,
   AddTrackPayload,
 } from '../services/queueService';
 
@@ -146,6 +148,39 @@ export function useRoomQueue(roomId: string | undefined) {
     }
   };
 
+  const handleReorderToIndex = async (queueItemId: string, targetIndex: number) => {
+    if (!roomId) return;
+    const currentIndex = upcomingQueue.findIndex((i) => i.id === queueItemId);
+    if (currentIndex === -1 || currentIndex === targetIndex) return;
+
+    const remaining = upcomingQueue.filter((i) => i.id !== queueItemId);
+    const newPos = calculateFractionalPosition(remaining, targetIndex);
+
+    // Optimistic UI reorder
+    const reordered = [...upcomingQueue];
+    const [moved] = reordered.splice(currentIndex, 1);
+    moved.position = newPos;
+    reordered.splice(targetIndex, 0, moved);
+    setUpcomingQueue(reordered);
+
+    try {
+      await reorderQueueItem(roomId, queueItemId, newPos);
+    } catch {
+      await refresh();
+    }
+  };
+
+  const handlePlayImmediately = async (queueItemId: string) => {
+    if (!roomId) return;
+    try {
+      await playTrackNow(roomId, queueItemId);
+      await refresh();
+    } catch (err) {
+      console.warn('[handlePlayImmediately] error:', err);
+      await refresh();
+    }
+  };
+
   const handleTogglePlay = async () => {
     if (!roomId || !playbackState) return;
     const nextPlaying = !isPlaying;
@@ -208,6 +243,8 @@ export function useRoomQueue(roomId: string | undefined) {
     addSong: handleAddSong,
     removeSong: handleRemoveSong,
     moveSong: handleMoveSong,
+    reorderToIndex: handleReorderToIndex,
+    playImmediately: handlePlayImmediately,
     togglePlay: handleTogglePlay,
     nextTrack: handleNextTrack,
     seek: handleSeek,

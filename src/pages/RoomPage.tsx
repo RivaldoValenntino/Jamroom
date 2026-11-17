@@ -65,6 +65,8 @@ export function RoomPage() {
     addSong,
     removeSong,
     moveSong,
+    reorderToIndex,
+    playImmediately,
     togglePlay,
     nextTrack,
     seek,
@@ -301,6 +303,8 @@ export function RoomPage() {
             onOpenHistory={() => setIsHistoryOpen(true)}
             onRemoveItem={removeSong}
             onMoveItem={moveSong}
+            onReorderToIndex={reorderToIndex}
+            onPlayImmediately={playImmediately}
           />
         </section>
 

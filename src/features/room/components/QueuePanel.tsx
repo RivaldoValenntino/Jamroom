@@ -1,4 +1,16 @@
-import { Plus, Disc, Trash2, ArrowUp, ArrowDown, Music, History, FolderHeart } from 'lucide-react';
+import { useState } from 'react';
+import {
+  Plus,
+  Disc,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  Music,
+  History,
+  FolderHeart,
+  GripVertical,
+  Play,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { QueueItem } from '@/types/database.types';
@@ -17,6 +29,8 @@ interface QueuePanelProps {
   onOpenPlaylists?: () => void;
   onRemoveItem: (queueItemId: string) => void;
   onMoveItem?: (queueItemId: string, direction: 'up' | 'down') => void;
+  onReorderToIndex?: (queueItemId: string, targetIndex: number) => void;
+  onPlayImmediately?: (queueItemId: string) => void;
   className?: string;
 }
 
@@ -33,8 +47,15 @@ export function QueuePanel({
   onOpenPlaylists,
   onRemoveItem,
   onMoveItem,
+  onReorderToIndex,
+  onPlayImmediately,
   className,
 }: QueuePanelProps) {
+  // Drag and Drop State
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [isOverNowPlaying, setIsOverNowPlaying] = useState(false);
+
   const totalSeconds = upcomingQueue.reduce((acc, item) => {
     return acc + (item.song?.duration_seconds || 0);
   }, 0);
@@ -117,9 +138,37 @@ export function QueuePanel({
 
       {/* Queue Content List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-        {/* NOW PLAYING TRACK */}
+        {/* NOW PLAYING TRACK (Drop Target to Play Immediately) */}
         {currentQueueItem && currentQueueItem.song ? (
-          <div className="p-2.5 rounded border border-primary/40 bg-primary/10 flex items-center gap-2.5 text-xs">
+          <div
+            onDragOver={(e) => {
+              if (canManageQueue) {
+                e.preventDefault();
+                setIsOverNowPlaying(true);
+              }
+            }}
+            onDragLeave={() => setIsOverNowPlaying(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsOverNowPlaying(false);
+              const targetId = e.dataTransfer.getData('text/plain') || draggedItemId;
+              if (targetId && targetId !== currentQueueItem.id && onPlayImmediately) {
+                onPlayImmediately(targetId);
+              }
+            }}
+            className={`p-2.5 rounded border transition-all duration-150 flex items-center gap-2.5 text-xs relative ${
+              isOverNowPlaying
+                ? 'border-emerald-500 bg-emerald-500/20 ring-1 ring-emerald-500'
+                : 'border-primary/40 bg-primary/10'
+            }`}
+          >
+            {isOverNowPlaying && (
+              <div className="absolute inset-0 bg-emerald-950/85 backdrop-blur-xs flex items-center justify-center gap-1.5 text-emerald-300 font-semibold text-xs z-10 rounded animate-pulse">
+                <Play className="h-3.5 w-3.5 fill-emerald-300" />
+                <span>Lepas di sini untuk Putar Sekarang ⚡</span>
+              </div>
+            )}
+
             <div className="relative h-10 w-16 rounded overflow-hidden bg-black shrink-0 border border-primary/30">
               {currentQueueItem.song.thumbnail_url ? (
                 <img
@@ -165,9 +214,38 @@ export function QueuePanel({
               </Button>
             )}
           </div>
-        ) : null}
+        ) : (
+          /* Drop zone when idle to start playback immediately */
+          upcomingQueue.length > 0 && canManageQueue && (
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsOverNowPlaying(true);
+              }}
+              onDragLeave={() => setIsOverNowPlaying(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsOverNowPlaying(false);
+                const targetId = e.dataTransfer.getData('text/plain') || draggedItemId;
+                if (targetId && onPlayImmediately) {
+                  onPlayImmediately(targetId);
+                }
+              }}
+              className={`p-2 rounded border border-dashed text-center text-xs transition-colors ${
+                isOverNowPlaying
+                  ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300'
+                  : 'border-border/60 bg-surface/30 text-muted-foreground hover:border-primary/50'
+              }`}
+            >
+              <p className="text-[11px] font-medium flex items-center justify-center gap-1.5">
+                <Play className="h-3 w-3" />
+                <span>Seret lagu ke sini untuk langsung memutar ⚡</span>
+              </p>
+            </div>
+          )
+        )}
 
-        {/* UPCOMING TRACKS */}
+        {/* UPCOMING TRACKS (Draggable and Reorderable) */}
         {upcomingQueue.length > 0 ? (
           upcomingQueue.map((item, index) => {
             const song = item.song;
@@ -176,12 +254,51 @@ export function QueuePanel({
             return (
               <div
                 key={item.id}
-                className="group p-2 rounded border border-border bg-surface hover:bg-surface-hover flex items-center gap-2 text-xs transition-colors"
+                draggable={canManageQueue}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('text/plain', item.id);
+                  setDraggedItemId(item.id);
+                }}
+                onDragEnd={() => {
+                  setDraggedItemId(null);
+                  setDragOverIndex(null);
+                }}
+                onDragOver={(e) => {
+                  if (canManageQueue) {
+                    e.preventDefault();
+                    setDragOverIndex(index);
+                  }
+                }}
+                onDragLeave={() => {
+                  if (dragOverIndex === index) {
+                    setDragOverIndex(null);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOverIndex(null);
+                  const droppedId = e.dataTransfer.getData('text/plain') || draggedItemId;
+                  if (droppedId && droppedId !== item.id && onReorderToIndex) {
+                    onReorderToIndex(droppedId, index);
+                  }
+                }}
+                className={`group p-2 rounded border transition-all flex items-center gap-2 text-xs select-none ${
+                  draggedItemId === item.id
+                    ? 'opacity-30 border-dashed border-primary bg-primary/5 scale-[0.98]'
+                    : dragOverIndex === index
+                    ? 'border-t-2 border-t-primary border-border bg-surface-hover shadow-sm'
+                    : 'border-border bg-surface hover:bg-surface-hover'
+                } ${canManageQueue ? 'cursor-grab active:cursor-grabbing' : ''}`}
               >
-                {/* Index position */}
-                <span className="w-5 text-center font-mono text-[11px] text-muted-foreground shrink-0">
-                  {index + 1}
-                </span>
+                {/* Drag Handle & Position Index */}
+                <div className="flex items-center gap-0.5 shrink-0">
+                  {canManageQueue && (
+                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors shrink-0" />
+                  )}
+                  <span className="w-4 text-center font-mono text-[11px] text-muted-foreground">
+                    {index + 1}
+                  </span>
+                </div>
 
                 {/* Track Thumbnail */}
                 <div className="relative h-9 w-14 rounded overflow-hidden bg-black shrink-0 border border-border">
@@ -218,8 +335,21 @@ export function QueuePanel({
                   </div>
                 </div>
 
-                {/* Actions: Reorder & Remove */}
+                {/* Actions: Play Now, Reorder, & Remove */}
                 <div className="flex items-center gap-0.5 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
+                  {/* Play Immediately shortcut */}
+                  {canManageQueue && onPlayImmediately && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => onPlayImmediately(item.id)}
+                      className="h-6 w-6 text-muted-foreground hover:text-emerald-400"
+                      title="Putar lagu ini sekarang juga"
+                    >
+                      <Play className="h-3 w-3" />
+                    </Button>
+                  )}
+
                   {canManageQueue && onMoveItem && (
                     <>
                       {index > 0 && (
