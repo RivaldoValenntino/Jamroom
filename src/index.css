@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 10% 4%;       /* Deepest Charcoal (#0a0a0c) */
+    --surface: 240 8% 8%;          /* Elevated Container (#141418) */
+    --surface-hover: 240 8% 12%;    /* Interactive Hover (#1f1f24) */
+    --foreground: 0 0% 98%;         /* Crisp White (#fbfbfb) */
+    
+    --muted: 240 6% 15%;
+    --muted-foreground: 240 5% 65%; /* Soft Silver (#9e9ea7) */
+    
+    --primary: 262 83% 58%;         /* Electric Purple (#7c3aed) */
+    --primary-foreground: 0 0% 100%;
+    
+    --secondary: 187 92% 55%;       /* Neon Cyan (#22d3ee) */
+    --secondary-foreground: 240 10% 4%;
+    
+    --accent: 330 81% 60%;          /* Vivid Magenta (#f43f5e) */
+    --accent-foreground: 0 0% 100%;
+    
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    --border: 240 6% 16%;
+    --input: 240 6% 18%;
+    --ring: 262 83% 58%;
+    
+    --radius: 0.75rem;
+  }
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Glassmorphism helpers */
+.glass-panel {
+  background: rgba(20, 20, 24, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-panel-interactive {
+  background: rgba(20, 20, 24, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.glass-panel-interactive:hover {
+  background: rgba(31, 31, 36, 0.8);
+  border-color: rgba(124, 58, 237, 0.3);
+  box-shadow: 0 8px 32px -8px rgba(124, 58, 237, 0.2);
+}
