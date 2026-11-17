@@ -374,14 +374,102 @@ export async function updateMemberRole(roomId: string, userId: string, role: Roo
  */
 export async function kickMember(roomId: string, userId: string): Promise<void> {
   if (isSupabaseConfigured) {
-    const { error } = await supabase
+    let rpcSuccess = false;
+    try {
+      const { data, error } = await supabase.rpc('rpc_kick_member', {
+        p_room_id: roomId,
+        p_target_user_id: userId,
+      });
+      if (!error && data?.success) {
+        rpcSuccess = true;
+      } else if (error && error.code !== 'PGRST202' && !error.message?.includes('function')) {
+        throw error;
+      }
+    } catch (err: any) {
+      if (err?.code !== 'PGRST202' && !err?.message?.includes('function')) {
+        throw err;
+      }
+    }
+
+    if (!rpcSuccess) {
+      // Direct DELETE fallback
+      const { error } = await supabase
+        .from('room_members')
+        .delete()
+        .eq('room_id', roomId)
+        .eq('user_id', userId);
+
+      if (error) throw error;
+    }
+
+    // Broadcast member kicked event over Realtime channel so kicked client is immediately ejected
+    try {
+      const channel = supabase.channel(`presence_${roomId}`);
+      await channel.send({
+        type: 'broadcast',
+        event: 'member_kicked',
+        payload: { userId, roomId },
+      });
+    } catch {
+      // Non-critical broadcast warning
+    }
+  }
+}
+
+/**
+ * Cleanly leaves a room for the authenticated participant.
+ */
+export async function leaveRoom(roomId: string): Promise<void> {
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase.rpc('rpc_leave_room', { p_room_id: roomId });
+      if (!error) return;
+    } catch {
+      // Fallback
+    }
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    if (userId) {
+      await supabase
+        .from('room_members')
+        .delete()
+        .eq('room_id', roomId)
+        .eq('user_id', userId);
+    }
+  }
+}
+
+/**
+ * Cleans up inactive or disconnected guest members whose heartbeat expired.
+ */
+export async function cleanupInactiveMembers(roomId: string, maxIdleSeconds: number = 120): Promise<number> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabase.rpc('rpc_cleanup_inactive_members', {
+        p_room_id: roomId,
+        p_max_idle_seconds: maxIdleSeconds,
+      });
+      if (!error && data?.purged_count !== undefined) {
+        return data.purged_count;
+      }
+    } catch {
+      // Fallback
+    }
+
+    // Direct fallback
+    const threshold = new Date(Date.now() - maxIdleSeconds * 1000).toISOString();
+    const { data } = await supabase
       .from('room_members')
       .delete()
       .eq('room_id', roomId)
-      .eq('user_id', userId);
+      .neq('role', 'owner')
+      .lt('last_active_at', threshold)
+      .select('user_id');
 
-    if (error) throw error;
+    return data ? data.length : 0;
   }
+  return 0;
 }
 
 /**

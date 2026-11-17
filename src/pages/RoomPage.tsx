@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   Users,
@@ -11,6 +11,7 @@ import {
   Radio,
   Play,
   Send,
+  LogOut,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +32,7 @@ import { NowPlayingStage } from '@/features/player/components/NowPlayingStage';
 import { MusicSearchModal } from '@/features/player/components/MusicSearchModal';
 import { PlaylistModal } from '@/features/playlist/components/PlaylistModal';
 import { RoomHistoryModal } from '@/features/playlist/components/RoomHistoryModal';
+import { leaveRoom } from '@/features/room/services/roomService';
 import type { Room } from '@/types/database.types';
 
 export function RoomPage() {
@@ -87,21 +89,53 @@ export function RoomPage() {
   // Handle local state update when room settings change
   const currentRoom = activeRoomState || room;
 
+  // Real-Time Member Kick & Live Presence State
+  const [kickedUserId, setKickedUserId] = useState<string | null>(null);
+
   // Phase 8 Social: Real-Time Chat, Presence & Floating Reactions
   const { messages: liveChatMessages, sendMessage: sendChatMessage, messagesEndRef } = useLiveChat(currentRoom?.id);
-  const { onlineCount } = useRoomPresence({
+  const { onlineMembers, onlineCount } = useRoomPresence({
     roomId: currentRoom?.id,
     userRole,
     isPlaying,
+    onMemberKicked: (id) => setKickedUserId(id),
+    onKickedSelf: () => {
+      alert('You have been removed from this lounge by the host.');
+      navigate('/');
+    },
   });
   const { reactions, sendReaction } = useFloatingReactions(currentRoom?.id);
 
   const [chatInput, setChatInput] = useState('');
 
+  // Auto clean-up database member row when tab is closed or navigated away (non-host)
+  useEffect(() => {
+    if (!currentRoom?.id || !user?.id || isHost) return;
+
+    const handleTabLeave = () => {
+      leaveRoom(currentRoom.id).catch(() => {});
+    };
+
+    window.addEventListener('beforeunload', handleTabLeave);
+    window.addEventListener('pagehide', handleTabLeave);
+    return () => {
+      window.removeEventListener('beforeunload', handleTabLeave);
+      window.removeEventListener('pagehide', handleTabLeave);
+    };
+  }, [currentRoom?.id, user?.id, isHost]);
+
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  const handleLeaveRoom = async () => {
+    if (!currentRoom) return;
+    if (window.confirm('Leave this lounge?')) {
+      await leaveRoom(currentRoom.id).catch(() => {});
+      navigate('/');
+    }
   };
 
   const handleSendChat = async (e: React.FormEvent) => {
@@ -246,16 +280,29 @@ export function RoomPage() {
 
         <div className="flex items-center gap-1.5 sm:gap-2">
           {!isHost && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsRecoveryOpen(true)}
-              className="h-6 gap-1 text-[11px] px-2 text-muted-foreground hover:text-foreground font-mono"
-              title="Claim host control with emergency recovery key"
-            >
-              <KeyRound className="h-3 w-3" />
-              <span className="hidden md:inline">Claim Host</span>
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleLeaveRoom}
+                className="h-6 gap-1 text-[11px] px-2 text-muted-foreground hover:text-destructive font-mono"
+                title="Leave this lounge"
+              >
+                <LogOut className="h-3 w-3" />
+                <span className="hidden md:inline">Leave</span>
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsRecoveryOpen(true)}
+                className="h-6 gap-1 text-[11px] px-2 text-muted-foreground hover:text-foreground font-mono"
+                title="Claim host control with emergency recovery key"
+              >
+                <KeyRound className="h-3 w-3" />
+                <span className="hidden md:inline">Claim Host</span>
+              </Button>
+            </>
           )}
 
           <Button
@@ -441,6 +488,8 @@ export function RoomPage() {
                 isHost={isHost}
                 userRole={userRole}
                 currentUserId={user?.id || null}
+                onlineMembers={onlineMembers}
+                kickedUserId={kickedUserId}
               />
             </div>
           )}

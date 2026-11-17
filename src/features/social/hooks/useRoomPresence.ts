@@ -17,9 +17,17 @@ interface UseRoomPresenceProps {
   roomId: string | undefined;
   userRole: RoomRole;
   isPlaying: boolean;
+  onMemberKicked?: (kickedUserId: string) => void;
+  onKickedSelf?: () => void;
 }
 
-export function useRoomPresence({ roomId, userRole, isPlaying }: UseRoomPresenceProps) {
+export function useRoomPresence({
+  roomId,
+  userRole,
+  isPlaying,
+  onMemberKicked,
+  onKickedSelf,
+}: UseRoomPresenceProps) {
   const { user, profile } = useAuthStore();
   const [onlineMembers, setOnlineMembers] = useState<PresenceMember[]>([]);
 
@@ -64,6 +72,22 @@ export function useRoomPresence({ roomId, userRole, isPlaying }: UseRoomPresence
           }
           setOnlineMembers(membersList);
         })
+        .on('broadcast', { event: 'member_kicked' }, (payload: any) => {
+          const kickedId = payload?.payload?.userId;
+          if (kickedId === user.id) {
+            if (onKickedSelf) {
+              onKickedSelf();
+            } else {
+              alert('You have been removed from this lounge by the host.');
+              window.location.href = '/';
+            }
+          } else if (kickedId) {
+            setOnlineMembers((prev) => prev.filter((m) => m.user_id !== kickedId));
+            if (onMemberKicked) {
+              onMemberKicked(kickedId);
+            }
+          }
+        })
         .subscribe(async (status: string) => {
           if (status === 'SUBSCRIBED') {
             await presenceChannel.track({
@@ -84,7 +108,7 @@ export function useRoomPresence({ roomId, userRole, isPlaying }: UseRoomPresence
         supabase.removeChannel(presenceChannel);
       }
     };
-  }, [roomId, user?.id, profile?.display_name, profile?.avatar_url, userRole]);
+  }, [roomId, user?.id, profile?.display_name, profile?.avatar_url, userRole, onMemberKicked, onKickedSelf]);
 
   // Update listening status in presence when playback toggles
   useEffect(() => {
