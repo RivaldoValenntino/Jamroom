@@ -131,6 +131,14 @@ export async function searchYouTube(query: string): Promise<YouTubeSearchResult[
   if (!searchRes.ok) {
     const errorBody = await searchRes.text();
     if (searchRes.status === 403) {
+      if (
+        errorBody.includes('PERMISSION_DENIED') ||
+        errorBody.includes('Permission denied') ||
+        errorBody.includes('accessNotConfigured') ||
+        errorBody.includes('SERVICE_DISABLED')
+      ) {
+        throw new Error('YOUTUBE_API_NOT_ENABLED');
+      }
       throw new Error('YOUTUBE_QUOTA_EXCEEDED');
     }
     throw new Error(`YouTube API search error (${searchRes.status}): ${errorBody}`);

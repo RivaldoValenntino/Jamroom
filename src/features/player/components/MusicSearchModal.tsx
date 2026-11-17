@@ -60,13 +60,31 @@ export function MusicSearchModal({ isOpen, onClose, onAddSong }: MusicSearchModa
     setIsSearching(true);
     setSearchError(null);
 
+    // Smart link detection: if user pasted a YouTube URL or 11-char ID in search, resolve directly!
+    const directVideoId = extractYouTubeId(trimmed);
+    if (directVideoId) {
+      const timer = setTimeout(async () => {
+        try {
+          const details = await fetchVideoDetails(directVideoId);
+          setResults([details]);
+        } catch {
+          setResults([]);
+        } finally {
+          setIsSearching(false);
+        }
+      }, 250);
+      return () => clearTimeout(timer);
+    }
+
     const timer = setTimeout(async () => {
       try {
         const searchResults = await searchYouTube(trimmed);
         setResults(searchResults);
       } catch (err: any) {
-        if (err.message === 'YOUTUBE_QUOTA_EXCEEDED') {
-          setSearchError('YouTube Data API daily quota exhausted. Switch to Direct Link tab to paste any YouTube URL directly!');
+        if (err.message === 'YOUTUBE_API_NOT_ENABLED') {
+          setSearchError('YOUTUBE_API_NOT_ENABLED');
+        } else if (err.message === 'YOUTUBE_QUOTA_EXCEEDED') {
+          setSearchError('YOUTUBE_QUOTA_EXCEEDED');
         } else {
           setSearchError(err.message || 'Unable to fetch YouTube results. Try direct URL paste.');
         }
@@ -208,16 +226,37 @@ export function MusicSearchModal({ isOpen, onClose, onAddSong }: MusicSearchModa
 
               {/* Error / Quota Notice Banner */}
               {searchError && (
-                <div className="p-2.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs flex items-start gap-2">
+                <div className="p-3 rounded border border-amber-500/30 bg-amber-500/10 text-amber-200 text-xs flex items-start gap-2.5">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
-                  <div className="flex-1">
-                    <p className="font-medium">{searchError}</p>
-                    <button
-                      onClick={() => setActiveTab('direct')}
-                      className="mt-1 text-[11px] underline font-medium text-amber-200 hover:text-white"
-                    >
-                      Paste direct YouTube link instead →
-                    </button>
+                  <div className="flex-1 space-y-1">
+                    {searchError === 'YOUTUBE_API_NOT_ENABLED' ? (
+                      <>
+                        <p className="font-semibold text-foreground">
+                          YouTube Data API v3 Belum Diaktifkan di Project GCP
+                        </p>
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                          Error <code className="font-mono bg-black/40 px-1 py-0.2 rounded text-amber-300">PERMISSION_DENIED</code> terjadi karena API belum diaktifkan di Google Cloud Console.
+                        </p>
+                        <ol className="list-decimal pl-4 text-[10px] text-muted-foreground space-y-0.5 pt-0.5">
+                          <li>Buka Google Cloud Console &gt; <strong>APIs &amp; Services &gt; Library</strong>.</li>
+                          <li>Cari <strong>YouTube Data API v3</strong> lalu klik tombol <strong>ENABLE</strong>.</li>
+                          <li>Jika API key dibatasi (API restrictions), pastikan centang YouTube Data API v3.</li>
+                        </ol>
+                      </>
+                    ) : (
+                      <p className="font-medium text-foreground">{searchError}</p>
+                    )}
+                    <div className="pt-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setActiveTab('direct')}
+                        className="h-6 text-[11px] px-2 text-amber-300 hover:text-white border-amber-500/40"
+                      >
+                        Gunakan Tab Direct Link (Tanpa API Key) →
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}

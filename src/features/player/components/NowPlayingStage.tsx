@@ -111,12 +111,31 @@ export function NowPlayingStage({
   const [isDraggingScrub, setIsDraggingScrub] = useState(false);
   const [scrubValue, setScrubValue] = useState(positionSeconds);
 
-  // Synchronize playback position counter
+  // Synchronize playback position counter smoothly without stutter
   useEffect(() => {
     if (!isDraggingScrub) {
+      if (isPlaying && playerRef.current) {
+        const localT = playerRef.current.getCurrentTime();
+        if (localT > 0) {
+          setScrubValue(localT);
+          return;
+        }
+      }
       setScrubValue(estimatedCurrentTime || positionSeconds);
     }
-  }, [estimatedCurrentTime, positionSeconds, isDraggingScrub]);
+  }, [estimatedCurrentTime, positionSeconds, isDraggingScrub, isPlaying]);
+
+  // Smooth 250ms scrub tick when playing
+  useEffect(() => {
+    if (!isPlaying || isDraggingScrub) return;
+    const tick = setInterval(() => {
+      const localT = playerRef.current?.getCurrentTime();
+      if (localT && localT > 0) {
+        setScrubValue(localT);
+      }
+    }, 250);
+    return () => clearInterval(tick);
+  }, [isPlaying, isDraggingScrub]);
 
   // Periodic polling fallback to detect duration if player loaded without event
   useEffect(() => {
