@@ -231,6 +231,60 @@ export async function updatePlayback(
 }
 
 /**
+ * Atomically reorders a queue item using fractional indexing.
+ */
+export async function reorderQueueItem(
+  roomId: string,
+  queueItemId: string,
+  newPosition: number
+): Promise<void> {
+  if (isSupabaseConfigured) {
+    const { error } = await supabase.rpc('rpc_reorder_queue', {
+      p_room_id: roomId,
+      p_queue_item_id: queueItemId,
+      p_new_position: newPosition,
+    });
+    if (error) throw error;
+    return;
+  }
+
+  // Local fallback
+  const queue = getLocalQueue(roomId);
+  const item = queue.find((i) => i.id === queueItemId);
+  if (item) {
+    item.position = newPosition;
+    item.updated_at = new Date().toISOString();
+    queue.sort((a, b) => a.position - b.position);
+    setLocalQueue(roomId, queue);
+  }
+}
+
+/**
+ * Calculates midpoint fractional position for reordering between adjacent items.
+ */
+export function calculateFractionalPosition(
+  items: QueueItem[],
+  targetIndex: number
+): number {
+  if (items.length === 0) return 1000.0;
+
+  if (targetIndex <= 0) {
+    // Insert at very top: half of first item's position
+    return items[0].position / 2;
+  }
+
+  if (targetIndex >= items.length) {
+    // Insert at very bottom: last item + 1000.0
+    return items[items.length - 1].position + 1000.0;
+  }
+
+  // Insert between targetIndex - 1 and targetIndex
+  const prevPos = items[targetIndex - 1].position;
+  const nextPos = items[targetIndex].position;
+  return (prevPos + nextPos) / 2;
+}
+
+/**
  * Casts a democratic skip vote for the active queue item.
  */
 export async function castSkipVote(

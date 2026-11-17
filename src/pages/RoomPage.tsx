@@ -49,6 +49,7 @@ export function RoomPage() {
     currentQueueItem,
     currentSong,
     upcomingQueue,
+    playbackState,
     isPlaying,
     positionSeconds,
     syncStatus,
@@ -57,6 +58,7 @@ export function RoomPage() {
     hasVotedToSkip,
     addSong,
     removeSong,
+    moveSong,
     togglePlay,
     nextTrack,
     seek,
@@ -259,6 +261,7 @@ export function RoomPage() {
             currentUserId={user?.id || null}
             onOpenSearch={() => setIsSearchOpen(true)}
             onRemoveItem={removeSong}
+            onMoveItem={moveSong}
           />
         </section>
 
@@ -270,6 +273,7 @@ export function RoomPage() {
         >
           <NowPlayingStage
             currentSong={currentSong}
+            playbackState={playbackState}
             isPlaying={isPlaying}
             positionSeconds={positionSeconds}
             syncStatus={syncStatus}

@@ -421,3 +421,61 @@ BEGIN
     );
 END;
 $$;
+
+-- 7.5 RPC: Reorder Queue Item with Automatic Precision Normalization
+CREATE OR REPLACE FUNCTION public.rpc_reorder_queue(
+    p_room_id UUID,
+    p_queue_item_id UUID,
+    p_new_position NUMERIC(20, 10)
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_user_id UUID;
+    v_min_gap NUMERIC(20, 10);
+BEGIN
+    v_user_id := auth.uid();
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'Authentication required' USING ERRCODE = '42501';
+    END IF;
+
+    -- Update target queue item
+    UPDATE public.queue_items
+    SET position = p_new_position,
+        updated_at = clock_timestamp()
+    WHERE id = p_queue_item_id AND room_id = p_room_id AND status = 'queued';
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Queue item not found or not in queued state' USING ERRCODE = 'P0002';
+    END IF;
+
+    -- Evaluate adjacent gap precision
+    SELECT MIN(diff) INTO v_min_gap FROM (
+        SELECT position - LAG(position) OVER (ORDER BY position ASC) AS diff
+        FROM public.queue_items
+        WHERE room_id = p_room_id AND status = 'queued'
+    ) t WHERE diff IS NOT NULL;
+
+    -- If precision is collapsing (< 0.0001), auto-renormalize in same transaction
+    IF v_min_gap IS NOT NULL AND v_min_gap < 0.0001000000 THEN
+        WITH reindexed AS (
+            SELECT id, ROW_NUMBER() OVER (ORDER BY position ASC) * 1000.0000000000 AS normalized_pos
+            FROM public.queue_items
+            WHERE room_id = p_room_id AND status = 'queued'
+        )
+        UPDATE public.queue_items qi
+        SET position = r.normalized_pos,
+            updated_at = clock_timestamp()
+        FROM reindexed r
+        WHERE qi.id = r.id;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'renormalized', (v_min_gap IS NOT NULL AND v_min_gap < 0.0001000000)
+    );
+END;
+$$;

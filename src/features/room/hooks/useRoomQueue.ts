@@ -9,6 +9,7 @@ import {
   advanceToNextSong,
   updatePlayback,
   castSkipVote,
+  reorderQueueItem,
   AddTrackPayload,
 } from '../services/queueService';
 
@@ -106,6 +107,45 @@ export function useRoomQueue(roomId: string | undefined) {
     await refresh();
   };
 
+  const handleMoveSong = async (queueItemId: string, direction: 'up' | 'down') => {
+    if (!roomId) return;
+    const currentIndex = upcomingQueue.findIndex((i) => i.id === queueItemId);
+    if (currentIndex === -1) return;
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= upcomingQueue.length) return;
+
+    const remaining = upcomingQueue.filter((i) => i.id !== queueItemId);
+    let newPos: number;
+
+    if (direction === 'up') {
+      if (targetIndex === 0) {
+        newPos = remaining[0].position / 2;
+      } else {
+        newPos = (remaining[targetIndex - 1].position + remaining[targetIndex].position) / 2;
+      }
+    } else {
+      if (targetIndex >= remaining.length) {
+        newPos = remaining[remaining.length - 1].position + 1000.0;
+      } else {
+        newPos = (remaining[targetIndex - 1].position + remaining[targetIndex].position) / 2;
+      }
+    }
+
+    // Optimistic reorder
+    const reordered = [...upcomingQueue];
+    const [moved] = reordered.splice(currentIndex, 1);
+    moved.position = newPos;
+    reordered.splice(targetIndex, 0, moved);
+    setUpcomingQueue(reordered);
+
+    try {
+      await reorderQueueItem(roomId, queueItemId, newPos);
+    } catch {
+      await refresh();
+    }
+  };
+
   const handleTogglePlay = async () => {
     if (!roomId || !playbackState) return;
     const nextPlaying = !isPlaying;
@@ -167,6 +207,7 @@ export function useRoomQueue(roomId: string | undefined) {
     hasVotedToSkip,
     addSong: handleAddSong,
     removeSong: handleRemoveSong,
+    moveSong: handleMoveSong,
     togglePlay: handleTogglePlay,
     nextTrack: handleNextTrack,
     seek: handleSeek,

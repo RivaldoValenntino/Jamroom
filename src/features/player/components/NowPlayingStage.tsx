@@ -16,13 +16,15 @@ import { Slider } from '@/components/ui/slider';
 import { YouTubePlayer, YouTubePlayerRef } from './YouTubePlayer';
 import { AutoplayBanner } from './AutoplayBanner';
 import { formatDuration } from '../services/youtubeService';
-import type { Song } from '@/types/database.types';
+import { usePlaybackSync } from '../hooks/usePlaybackSync';
+import type { Song, PlaybackState } from '@/types/database.types';
 
 interface NowPlayingStageProps {
   currentSong: Song | null;
+  playbackState?: PlaybackState | null;
   isPlaying: boolean;
   positionSeconds: number;
-  syncStatus: 'in_sync' | 'buffering' | 'drift_correcting' | 'idle';
+  syncStatus?: 'in_sync' | 'buffering' | 'drift_correcting' | 'idle';
   canControlPlayback: boolean;
   skipVotesCount: number;
   skipVotesRequired: number;
@@ -36,9 +38,10 @@ interface NowPlayingStageProps {
 
 export function NowPlayingStage({
   currentSong,
+  playbackState,
   isPlaying,
   positionSeconds,
-  syncStatus,
+  syncStatus: externalSyncStatus,
   canControlPlayback,
   skipVotesCount,
   skipVotesRequired,
@@ -50,6 +53,16 @@ export function NowPlayingStage({
   onOpenSearch,
 }: NowPlayingStageProps) {
   const playerRef = useRef<YouTubePlayerRef>(null);
+
+  // Authoritative Playback Synchronization Engine
+  const { syncState: internalSyncState, estimatedCurrentTime } = usePlaybackSync({
+    playerRef,
+    playbackState: playbackState || null,
+    currentSong,
+    onTrackEnded: onNextTrack,
+  });
+
+  const syncStatus = externalSyncStatus || internalSyncState;
 
   // Local device audio state
   const [volume, setVolume] = useState<number>(() => {
@@ -66,25 +79,9 @@ export function NowPlayingStage({
   // Synchronize playback position counter
   useEffect(() => {
     if (!isDraggingScrub) {
-      setScrubValue(positionSeconds);
+      setScrubValue(estimatedCurrentTime || positionSeconds);
     }
-  }, [positionSeconds, isDraggingScrub]);
-
-  // Tick elapsed time locally every second when playing
-  useEffect(() => {
-    if (!isPlaying || !currentSong) return;
-
-    const interval = setInterval(() => {
-      if (!isDraggingScrub) {
-        setScrubValue((t) => {
-          const max = currentSong.duration_seconds || 10000;
-          return Math.min(t + 1, max);
-        });
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isPlaying, currentSong, isDraggingScrub]);
+  }, [estimatedCurrentTime, positionSeconds, isDraggingScrub]);
 
   // Handle local volume change
   const handleVolumeChange = (val: number) => {
