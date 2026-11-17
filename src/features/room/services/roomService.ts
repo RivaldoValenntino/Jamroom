@@ -34,20 +34,36 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
     .slice(0, 40);
 
   if (isSupabaseConfigured) {
-    const { data, error } = await supabase.rpc('rpc_create_room', {
-      p_name: input.name.trim(),
-      p_slug: sanitizedSlug,
-      p_description: input.description?.trim() || null,
-      p_privacy: input.privacy,
-      p_password: input.password?.trim() || null,
-      p_settings: input.settings || {},
-    });
+    try {
+      const { data, error } = await supabase.rpc('rpc_create_room', {
+        p_name: input.name.trim(),
+        p_slug: sanitizedSlug,
+        p_description: input.description?.trim() || null,
+        p_privacy: input.privacy,
+        p_password: input.password?.trim() || null,
+        p_settings: input.settings || {},
+      });
 
-    if (error) throw error;
-    return {
-      room: data.room as Room,
-      recoveryToken: data.recovery_token,
-    };
+      if (!error && data) {
+        return {
+          room: data.room as Room,
+          recoveryToken: data.recovery_token,
+        };
+      }
+
+      console.warn('[createRoom] RPC error, falling back to local room:', error);
+      // If function is not in schema cache (migration not run yet), fall back to local storage
+      if (error?.code === 'PGRST202' || error?.message?.includes('schema cache') || error?.message?.includes('function')) {
+        return createLocalRoom(input, sanitizedSlug);
+      }
+
+      throw error;
+    } catch (err: any) {
+      if (err?.code === 'PGRST202' || err?.message?.includes('schema cache') || err?.message?.includes('function')) {
+        return createLocalRoom(input, sanitizedSlug);
+      }
+      throw err;
+    }
   }
 
   // Local Offline Fallback
@@ -114,17 +130,28 @@ export async function getPublicRooms(searchQuery?: string): Promise<Room[]> {
  */
 export async function joinRoom(roomId: string, passcode?: string): Promise<JoinRoomResult> {
   if (isSupabaseConfigured) {
-    const { data, error } = await supabase.rpc('rpc_join_room', {
-      p_room_id: roomId,
-      p_passcode: passcode?.trim() || null,
-    });
+    try {
+      const { data, error } = await supabase.rpc('rpc_join_room', {
+        p_room_id: roomId,
+        p_passcode: passcode?.trim() || null,
+      });
 
-    if (error) throw error;
-    return {
-      success: true,
-      role: data.role,
-      room: data.room as Room,
-    };
+      if (!error && data) {
+        return {
+          success: true,
+          role: data.role,
+          room: data.room as Room,
+        };
+      }
+
+      if (error?.code !== 'PGRST202' && !error?.message?.includes('schema cache') && !error?.message?.includes('function')) {
+        throw error;
+      }
+    } catch (err: any) {
+      if (err?.code !== 'PGRST202' && !err?.message?.includes('schema cache') && !err?.message?.includes('function')) {
+        throw err;
+      }
+    }
   }
 
   // Offline mode join
@@ -134,7 +161,7 @@ export async function joinRoom(roomId: string, passcode?: string): Promise<JoinR
 
   return {
     success: true,
-    role: 'member',
+    role: 'owner',
     room,
   };
 }

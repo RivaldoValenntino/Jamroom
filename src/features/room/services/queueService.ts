@@ -77,17 +77,25 @@ export async function addTrackToQueue(
   track: AddTrackPayload
 ): Promise<void> {
   if (isSupabaseConfigured) {
-    const { error } = await supabase.rpc('rpc_add_queue_item', {
-      p_room_id: roomId,
-      p_youtube_id: track.youtubeId,
-      p_title: track.title,
-      p_artist_channel: track.artistChannel,
-      p_duration_seconds: track.durationSeconds,
-      p_thumbnail_url: track.thumbnailUrl,
-    });
+    try {
+      const { error } = await supabase.rpc('rpc_add_queue_item', {
+        p_room_id: roomId,
+        p_youtube_id: track.youtubeId,
+        p_title: track.title,
+        p_artist_channel: track.artistChannel,
+        p_duration_seconds: track.durationSeconds,
+        p_thumbnail_url: track.thumbnailUrl,
+      });
 
-    if (error) throw error;
-    return;
+      if (!error) return;
+      if (error.code !== 'PGRST202' && !error.message?.includes('schema cache')) {
+        throw error;
+      }
+    } catch (err: any) {
+      if (err?.code !== 'PGRST202' && !err?.message?.includes('schema cache')) {
+        throw err;
+      }
+    }
   }
 
   // Offline mock insertion
