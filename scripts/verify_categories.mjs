@@ -35,39 +35,39 @@ for (const expected of EXPECTED_CATEGORIES) {
 }
 console.log('✓ Category catalog contains all 13 required music genres.');
 
-console.log('\n--- TEST 2: ROOM CREATION WITH REQUIRED CATEGORY ---');
+console.log('\n--- TEST 2: ROOM CREATION WITH OPTIONAL CATEGORY ---');
 function simulateCreateRoom(input) {
   if (!input.name || !input.name.trim()) throw new Error('Room name is required');
-  if (!input.categoryId) throw new Error('Music category is required');
 
-  const selectedCategory = categories.find((c) => c.id === input.categoryId);
-  if (!selectedCategory) throw new Error('Invalid category submitted');
+  const selectedCategory = input.categoryId ? categories.find((c) => c.id === input.categoryId) : null;
 
   return {
     id: 'room-' + Math.random().toString(36).slice(2, 9),
     name: input.name.trim(),
     slug: input.slug,
     privacy: input.privacy || 'public',
-    category_id: selectedCategory.id,
-    category: selectedCategory,
+    category_id: selectedCategory?.id || null,
+    category: selectedCategory || null,
     owner_id: 'user-host-1',
     status: 'active'
   };
 }
 
-// 2a. Reject creation without category
-assert.throws(
-  () => simulateCreateRoom({ name: 'Midnight Beats', slug: 'midnight-beats' }),
-  /Music category is required/,
-  'Room creation must fail when category is omitted'
-);
+// 2a. Creation without category succeeds (empty/optional)
+const roomWithoutCategory = simulateCreateRoom({ name: 'Freeform Lounge', slug: 'freeform-lounge' });
+assert.equal(roomWithoutCategory.category_id, null);
+assert.equal(roomWithoutCategory.category, null);
+console.log('✓ Room creation succeeds without category (optional / empty / freeform).');
 
-// 2b. Successful creation with valid category
+// 2b. Creation with category also succeeds
 const created = simulateCreateRoom({
   name: 'Midnight Beats',
   slug: 'midnight-beats',
   categoryId: 'cat-lo-fi'
 });
+assert.equal(created.category_id, 'cat-lo-fi');
+assert.equal(created.category.name, 'Lo-fi');
+console.log('✓ Room creation with selected category sets category properly.');
 assert.equal(created.category_id, 'cat-lo-fi');
 assert.equal(created.category.name, 'Lo-fi');
 console.log('✓ Room creation successfully validates and requires category.');

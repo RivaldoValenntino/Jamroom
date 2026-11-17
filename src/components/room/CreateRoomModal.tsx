@@ -37,11 +37,6 @@ export function CreateRoomModal() {
     fetchRoomCategories().then((cats) => {
       if (cats && cats.length > 0) {
         setCategories(cats);
-        // Default to Lo-fi or first category if none selected
-        if (!categoryId) {
-          const lofi = cats.find((c) => c.slug === 'lo-fi') || cats[0];
-          setCategoryId(lofi.id);
-        }
       }
     });
   }, [isCreateRoomOpen]);
@@ -68,10 +63,6 @@ export function CreateRoomModal() {
       setErrorMsg('Room name is required');
       return;
     }
-    if (!categoryId) {
-      setErrorMsg('Music category is required');
-      return;
-    }
     const finalSlug = slug.trim() || `room-${Math.floor(1000 + Math.random() * 9000)}`;
     if (privacy === 'password' && !password.trim()) {
       setErrorMsg('Password is required for password-protected rooms');
@@ -87,7 +78,7 @@ export function CreateRoomModal() {
         slug: finalSlug,
         privacy,
         password: privacy === 'password' ? password.trim() : undefined,
-        categoryId,
+        categoryId: categoryId || undefined,
         settings: {
           shared_speakers: sharedSpeakers,
           skip_vote_threshold_percent: skipThreshold,
@@ -225,17 +216,16 @@ export function CreateRoomModal() {
                     <Music2 className="h-3 w-3 text-primary" />
                     Music Category
                   </span>
-                  <span className="text-[10px] font-mono text-muted-foreground uppercase">Required</span>
+                  <span className="text-[10px] font-mono text-muted-foreground uppercase">Optional</span>
                 </label>
                 <div className="relative">
                   <select
                     value={categoryId}
                     onChange={(e) => setCategoryId(e.target.value)}
-                    required
                     className="w-full h-8 px-2.5 text-xs bg-muted/40 border border-border rounded text-foreground outline-none focus:border-primary transition-colors cursor-pointer appearance-none"
                   >
-                    <option value="" disabled className="bg-surface text-muted-foreground">
-                      Select room music category / vibe...
+                    <option value="" className="bg-surface text-muted-foreground">
+                      None / Freeform (No Category)
                     </option>
                     {categories.map((cat) => (
                       <option key={cat.id} value={cat.id} className="bg-surface text-foreground py-1">

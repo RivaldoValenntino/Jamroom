@@ -107,12 +107,9 @@ BEGIN
         v_password_hash := crypt(p_password, gen_salt('bf'));
     END IF;
 
-    -- Fallback category if not provided or invalid
-    IF v_final_category_id IS NULL OR NOT EXISTS (SELECT 1 FROM public.room_categories WHERE id = v_final_category_id) THEN
-        SELECT id INTO v_final_category_id FROM public.room_categories WHERE slug = 'lo-fi' LIMIT 1;
-        IF v_final_category_id IS NULL THEN
-            SELECT id INTO v_final_category_id FROM public.room_categories LIMIT 1;
-        END IF;
+    -- Validate category if provided, otherwise leave NULL (category is optional)
+    IF v_final_category_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.room_categories WHERE id = v_final_category_id) THEN
+        v_final_category_id := NULL;
     END IF;
 
     -- Generate emergency recovery token (128-bit)

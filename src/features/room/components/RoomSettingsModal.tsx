@@ -167,8 +167,8 @@ export function RoomSettingsModal({
                     onChange={(e) => setCategoryId(e.target.value)}
                     className="w-full h-8 px-2.5 text-xs bg-muted/30 border border-border rounded text-foreground outline-none focus:border-primary transition-colors cursor-pointer appearance-none"
                   >
-                    <option value="" disabled className="bg-surface text-muted-foreground">
-                      Select room category...
+                    <option value="" className="bg-surface text-muted-foreground">
+                      None / Freeform (No Category)
                     </option>
                     {categories.map((cat) => (
                       <option key={cat.id} value={cat.id} className="bg-surface text-foreground py-1">

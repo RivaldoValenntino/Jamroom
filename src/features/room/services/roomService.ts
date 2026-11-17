@@ -621,9 +621,8 @@ function getLocalRooms(): Room[] {
 function createLocalRoom(input: CreateRoomInput, slug: string): CreateRoomResult {
   const localRooms = getLocalRooms();
   const category = input.categoryId
-    ? DEFAULT_ROOM_CATEGORIES.find((c) => c.id === input.categoryId || c.slug === input.categoryId) ||
-      DEFAULT_ROOM_CATEGORIES.find((c) => c.slug === 'lo-fi')
-    : DEFAULT_ROOM_CATEGORIES.find((c) => c.slug === 'lo-fi');
+    ? DEFAULT_ROOM_CATEGORIES.find((c) => c.id === input.categoryId || c.slug === input.categoryId) || null
+    : null;
 
   const newRoom: Room = {
     id: crypto.randomUUID(),
