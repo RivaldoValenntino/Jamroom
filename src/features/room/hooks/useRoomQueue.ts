@@ -143,7 +143,8 @@ export function useRoomQueue(roomId: string | undefined) {
 
     try {
       await reorderQueueItem(roomId, queueItemId, newPos);
-    } catch {
+    } catch (err) {
+      console.error('[handleReorderToIndex] Reorder error:', err);
       await refresh();
     }
   };
@@ -165,7 +166,8 @@ export function useRoomQueue(roomId: string | undefined) {
 
     try {
       await reorderQueueItem(roomId, queueItemId, newPos);
-    } catch {
+    } catch (err) {
+      console.error('[handleReorderToIndex] Reorder error:', err);
       await refresh();
     }
   };

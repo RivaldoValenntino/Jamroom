@@ -302,12 +302,37 @@ export async function reorderQueueItem(
   newPosition: number
 ): Promise<void> {
   if (isSupabaseConfigured) {
-    const { error } = await supabase.rpc('rpc_reorder_queue', {
-      p_room_id: roomId,
-      p_queue_item_id: queueItemId,
-      p_new_position: newPosition,
-    });
-    if (error) throw error;
+    let rpcSuccess = false;
+    try {
+      const { data, error } = await supabase.rpc('rpc_reorder_queue', {
+        p_room_id: roomId,
+        p_queue_item_id: queueItemId,
+        p_new_position: newPosition,
+      });
+      if (!error && (data?.success || data === true)) {
+        rpcSuccess = true;
+      } else if (error && error.code !== 'PGRST202' && !error.message?.includes('function')) {
+        throw error;
+      }
+    } catch (err: any) {
+      if (err?.code !== 'PGRST202' && !err?.message?.includes('function')) {
+        throw err;
+      }
+    }
+
+    if (!rpcSuccess) {
+      // Direct UPDATE fallback
+      const { error } = await supabase
+        .from('queue_items')
+        .update({
+          position: newPosition,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', queueItemId)
+        .eq('room_id', roomId);
+
+      if (error) throw error;
+    }
     return;
   }
 
@@ -327,24 +352,43 @@ export async function reorderQueueItem(
  */
 export async function playTrackNow(roomId: string, queueItemId: string): Promise<void> {
   if (isSupabaseConfigured) {
-    // 1. Mark currently playing item as played
+    // 1. Try atomic RPC rpc_play_track_now
+    try {
+      const { data, error } = await supabase.rpc('rpc_play_track_now', {
+        p_room_id: roomId,
+        p_queue_item_id: queueItemId,
+      });
+      if (!error && data?.success) {
+        return;
+      }
+      if (error && error.code !== 'PGRST202' && !error.message?.includes('function')) {
+        throw error;
+      }
+    } catch (err: any) {
+      if (err?.code !== 'PGRST202' && !err?.message?.includes('function')) {
+        throw err;
+      }
+    }
+
+    // 2. Direct fallback (resilient to 0 rows / PGRST116 by using maybeSingle())
+    // 2a. Mark currently playing item as played
     await supabase
       .from('queue_items')
-      .update({ status: 'played' })
+      .update({ status: 'played', updated_at: new Date().toISOString() })
       .eq('room_id', roomId)
       .eq('status', 'playing');
 
-    // 2. Mark target item as playing
+    // 2b. Mark target item as playing
     const { data: item, error: itemErr } = await supabase
       .from('queue_items')
       .update({ status: 'playing', updated_at: new Date().toISOString() })
       .eq('id', queueItemId)
       .select('*, song:songs(*)')
-      .single();
+      .maybeSingle();
 
     if (itemErr) throw itemErr;
 
-    // 3. Update authoritative playback state
+    // 2c. Update authoritative playback state
     if (item) {
       const { error: pbErr } = await supabase
         .from('playback_states')
@@ -399,18 +443,17 @@ export function calculateFractionalPosition(
   if (items.length === 0) return 1000.0;
 
   if (targetIndex <= 0) {
-    // Insert at very top: half of first item's position
-    return items[0].position / 2;
+    const firstPos = items[0]?.position ?? 1000.0;
+    return firstPos > 1.0 ? firstPos / 2 : firstPos - 100.0;
   }
 
   if (targetIndex >= items.length) {
-    // Insert at very bottom: last item + 1000.0
-    return items[items.length - 1].position + 1000.0;
+    const lastPos = items[items.length - 1]?.position ?? 0.0;
+    return lastPos + 1000.0;
   }
 
-  // Insert between targetIndex - 1 and targetIndex
-  const prevPos = items[targetIndex - 1].position;
-  const nextPos = items[targetIndex].position;
+  const prevPos = items[targetIndex - 1]?.position ?? 0.0;
+  const nextPos = items[targetIndex]?.position ?? (prevPos + 1000.0);
   return (prevPos + nextPos) / 2;
 }
 

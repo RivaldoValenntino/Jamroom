@@ -7,9 +7,6 @@ import {
   Volume2,
   Lock,
   Globe,
-  Sliders,
-  Shield,
-  Layers,
   Plus,
   Loader2,
 } from 'lucide-react';
@@ -87,7 +84,7 @@ export function HomePage() {
       </div>
 
       {/* Technical Specifications Bar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+      {/* <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
         <div className="ui-panel p-3 rounded-md">
           <div className="flex items-center gap-1.5 text-xs font-medium text-foreground mb-1">
             <Radio className="h-3.5 w-3.5 text-primary" />
@@ -127,7 +124,7 @@ export function HomePage() {
             Fractional indexing with server-side democratic skip voting.
           </p>
         </div>
-      </div>
+      </div> */}
 
       {/* Information-Dense Live Rooms Table (Live Connected to Supabase) */}
       <div className="space-y-3">
